@@ -9,6 +9,7 @@ namespace ps2_syscalls
     void fioRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fioWrite(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void fioLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fioMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fioChdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fioRmdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

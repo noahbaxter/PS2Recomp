@@ -413,12 +413,15 @@
     X(sceeFontSetMode)                        \
     X(sceeFontSetFont)                        \
     X(sceeFontSetScale)                       \
+    X(sceGetstat)                             \
     X(sceIoctl)                               \
     X(sceIpuInit)                             \
     X(sceIpuRestartDMA)                       \
     X(sceIpuStopDMA)                          \
     X(sceIpuSync)                             \
     X(sceLseek)                               \
+    X(sceLseek64)                             \
+    X(sceMkdir)                               \
     X(sceMcChangeThreadPriority)              \
     X(sceMcChdir)                             \
     X(sceMcClose)                             \

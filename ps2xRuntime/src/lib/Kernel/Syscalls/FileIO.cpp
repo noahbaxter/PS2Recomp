@@ -283,18 +283,14 @@ namespace ps2_syscalls
         setReturnS32(ctx, (int32_t)bytesWritten);
     }
 
-    void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Seeks a guest descriptor and returns the new position, or -1.
+    static int64_t seekHostFile(const char *caller, int ps2Fd, int64_t offset, int whence)
     {
-        int ps2Fd = (int)getRegU32(ctx, 4);  // $a0
-        int32_t offset = getRegU32(ctx, 5);  // $a1 (PS2 seems to use 32-bit offset here commonly)
-        int whence = (int)getRegU32(ctx, 6); // $a2 (PS2 FIO_SEEK constants)
-
         FILE *fp = getHostFile(ps2Fd);
         if (!fp)
         {
-            std::cerr << "fioLseek error: Invalid file descriptor " << ps2Fd << std::endl;
-            setReturnS32(ctx, -1); // -EBADF
-            return;
+            std::cerr << caller << " error: Invalid file descriptor " << ps2Fd << std::endl;
+            return -1; // -EBADF
         }
 
         int hostWhence;
@@ -310,36 +306,48 @@ namespace ps2_syscalls
             hostWhence = SEEK_END;
             break;
         default:
-            std::cerr << "fioLseek error: Invalid whence value " << whence << " for fd " << ps2Fd << std::endl;
-            setReturnS32(ctx, -1); // -EINVAL
-            return;
+            std::cerr << caller << " error: Invalid whence value " << whence << " for fd " << ps2Fd << std::endl;
+            return -1; // -EINVAL
         }
 
-        if (::fseek(fp, static_cast<long>(offset), hostWhence) != 0)
-        {
-            std::cerr << "fioLseek error: fseek failed for fd " << ps2Fd << ": " << strerror(errno) << std::endl;
-            setReturnS32(ctx, -1); // Return error code
-            return;
-        }
-
-        long newPos = ::ftell(fp);
+#ifdef _WIN32
+        const int seekResult = ::_fseeki64(fp, offset, hostWhence);
+        const int64_t newPos = seekResult == 0 ? ::_ftelli64(fp) : -1;
+#else
+        const int seekResult = ::fseeko(fp, static_cast<off_t>(offset), hostWhence);
+        const int64_t newPos = seekResult == 0 ? static_cast<int64_t>(::ftello(fp)) : -1;
+#endif
         if (newPos < 0)
         {
-            std::cerr << "fioLseek error: ftell failed after fseek for fd " << ps2Fd << ": " << strerror(errno) << std::endl;
-            setReturnS32(ctx, -1);
+            std::cerr << caller << " error: seek failed for fd " << ps2Fd << ": " << strerror(errno) << std::endl;
+            return -1;
         }
-        else
+        return newPos;
+    }
+
+    void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        int ps2Fd = (int)getRegU32(ctx, 4);  // $a0
+        int32_t offset = getRegU32(ctx, 5);  // $a1 (PS2 seems to use 32-bit offset here commonly)
+        int whence = (int)getRegU32(ctx, 6); // $a2 (PS2 FIO_SEEK constants)
+
+        const int64_t newPos = seekHostFile("fioLseek", ps2Fd, offset, whence);
+        if (newPos > 0xFFFFFFFFLL)
         {
-            if (newPos > 0xFFFFFFFFL)
-            {
-                std::cerr << "fioLseek warning: New position exceeds 32-bit for fd " << ps2Fd << std::endl;
-                setReturnS32(ctx, -1);
-            }
-            else
-            {
-                setReturnS32(ctx, (int32_t)newPos);
-            }
+            std::cerr << "fioLseek warning: New position exceeds 32-bit for fd " << ps2Fd << std::endl;
+            setReturnS32(ctx, -1);
+            return;
         }
+        setReturnS32(ctx, (int32_t)newPos);
+    }
+
+    void fioLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        int ps2Fd = (int)getRegU32(ctx, 4);                     // $a0
+        const int64_t offset = _mm_cvtsi128_si64(ctx->r[5]);    // $a1, the whole 64-bit register
+        int whence = (int)getRegU32(ctx, 6);                    // $a2
+
+        setReturnU64(ctx, static_cast<uint64_t>(seekHostFile("fioLseek64", ps2Fd, offset, whence)));
     }
 
     void fioMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -448,7 +456,6 @@ namespace ps2_syscalls
 
     void fioGetstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        // we wont implement this for now.
         uint32_t pathAddr = getRegU32(ctx, 4);    // $a0
         uint32_t statBufAddr = getRegU32(ctx, 5); // $a1
 
@@ -476,7 +483,42 @@ namespace ps2_syscalls
             return;
         }
 
-        setReturnS32(ctx, -1);
+        // A missing file is an ordinary answer, not an error worth logging.
+        std::error_code ec;
+        const auto status = std::filesystem::status(hostPath, ec);
+        if (ec || !std::filesystem::exists(status))
+        {
+            setReturnS32(ctx, -1);
+            return;
+        }
+
+        // iomanX stat layout (iox_stat_t, 64 bytes): mode, attr, size, then
+        // ctime, atime and mtime as 8-byte PS2 timestamps, hisize, 6 private words.
+        // The permission bits share POSIX's values, so the host's carry over.
+        constexpr uint32_t kStatIfReg = 0x2000u;
+        constexpr uint32_t kStatIfDir = 0x1000u;
+        const bool isDir = std::filesystem::is_directory(status);
+        const uint32_t mode = (isDir ? kStatIfDir : kStatIfReg) |
+                              (static_cast<uint32_t>(status.permissions()) & 0x1FFu);
+        const uint64_t size = isDir ? 0u : static_cast<uint64_t>(std::filesystem::file_size(hostPath, ec));
+        const auto mtime = std::filesystem::last_write_time(hostPath, ec);
+
+        uint8_t stat[64] = {};
+        const uint32_t sizeLo = static_cast<uint32_t>(size);
+        const uint32_t sizeHi = static_cast<uint32_t>(size >> 32);
+        std::memcpy(stat + 0x00, &mode, sizeof(mode));
+        std::memcpy(stat + 0x08, &sizeLo, sizeof(sizeLo));
+        if (!ec)
+        {
+            // The host only keeps a modification time, so it stands in for all three.
+            const std::time_t t = fileTimeToTimeT(mtime);
+            encodePs2Time(t, stat + 0x0C);
+            encodePs2Time(t, stat + 0x14);
+            encodePs2Time(t, stat + 0x1C);
+        }
+        std::memcpy(stat + 0x24, &sizeHi, sizeof(sizeHi));
+        std::memcpy(ps2StatBuf, stat, sizeof(stat));
+        setReturnS32(ctx, 0);
     }
 
     void fioRemove(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
