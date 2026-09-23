@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "FileIO.h"
+#include "../Syscalls/FileIO.h"
 
 namespace ps2_stubs
 {
@@ -98,9 +99,24 @@ namespace ps2_stubs
         setReturnS32(ctx, 0);
     }
 
+    void sceGetstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ps2_syscalls::fioGetstat(rdram, ctx, runtime);
+    }
+
     void sceLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ps2_syscalls::fioLseek(rdram, ctx, runtime);
+    }
+
+    void sceLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ps2_syscalls::fioLseek64(rdram, ctx, runtime);
+    }
+
+    void sceMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ps2_syscalls::fioMkdir(rdram, ctx, runtime);
     }
 
     void sceOpen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

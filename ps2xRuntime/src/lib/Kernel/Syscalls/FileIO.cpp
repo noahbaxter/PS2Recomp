@@ -244,6 +244,29 @@ namespace ps2_syscalls
         }
     }
 
+    void fioLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const int ps2Fd = (int)getRegU32(ctx, 4);                  // $a0
+        const int64_t offset = _mm_cvtsi128_si64(ctx->r[5]);       // $a1, the whole 64-bit register
+        const int whence = (int)getRegU32(ctx, 6);                 // $a2
+
+        int hostWhence = -1;
+        switch (whence)
+        {
+        case PS2_FIO_SEEK_SET:
+            hostWhence = SEEK_SET;
+            break;
+        case PS2_FIO_SEEK_CUR:
+            hostWhence = SEEK_CUR;
+            break;
+        case PS2_FIO_SEEK_END:
+            hostWhence = SEEK_END;
+            break;
+        }
+        const int64_t newPos = (runtime && hostWhence >= 0) ? runtime->vfs().seek(ps2Fd, offset, hostWhence) : -1;
+        setReturnU64(ctx, static_cast<uint64_t>(newPos));
+    }
+
     void fioMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         uint32_t pathAddr = getRegU32(ctx, 4); // $a0

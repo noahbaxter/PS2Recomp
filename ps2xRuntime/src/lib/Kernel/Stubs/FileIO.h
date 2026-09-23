@@ -17,8 +17,11 @@ namespace ps2_stubs
     void sceClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceFsInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceFsReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sceGetstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceIoctl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sceLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sceMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceOpen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceWrite(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
