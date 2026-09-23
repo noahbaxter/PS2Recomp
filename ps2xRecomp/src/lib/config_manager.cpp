@@ -74,6 +74,11 @@ namespace ps2recomp
                 config.stubImplementations = toml::find<std::vector<std::string>>(data, "stubs");
             }
 
+            if (general.contains("stub_denylist") && general.at("stub_denylist").is_array())
+            {
+                config.stubDenylist = toml::find<std::vector<std::string>>(general, "stub_denylist");
+            }
+
             if (general.contains("skip") && general.at("skip").is_array())
             {
                 config.skipFunctions = toml::find<std::vector<std::string>>(general, "skip");

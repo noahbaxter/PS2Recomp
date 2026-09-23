@@ -752,6 +752,7 @@ namespace ps2recomp
             m_stubFunctionStarts.clear();
             m_stubHandlerBindingsByStart.clear();
             m_correctnessCriticalFunctionStarts.clear();
+            m_stubDenylist = {m_config.stubDenylist.begin(), m_config.stubDenylist.end()};
 
             for (const auto &name : m_config.skipFunctions)
             {
@@ -897,7 +898,8 @@ namespace ps2recomp
             relocationCallNames.reserve(m_relocations.size());
             for (const auto &reloc : m_relocations)
             {
-                if (reloc.symbolName.empty())
+                // A denied callee keeps its recompiled body, so its callsites stay direct calls.
+                if (reloc.symbolName.empty() || m_stubDenylist.contains(reloc.symbolName))
                 {
                     continue;
                 }
@@ -2022,6 +2024,14 @@ namespace ps2recomp
 
     bool PS2Recompiler::isStubFunction(const Function &function) const
     {
+        // Handlers bind by name, so on a symbolized ELF a statically linked SDK
+        // function that shares a handler's name loses its real body. The denylist
+        // keeps that body, and is checked first so it wins over every binding below.
+        if (m_stubDenylist.contains(function.name))
+        {
+            return false;
+        }
+
         if (m_stubFunctionStarts.contains(function.start))
         {
             return true;
