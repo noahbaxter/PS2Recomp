@@ -70,6 +70,7 @@ namespace ps2recomp
         std::unordered_set<std::string> m_stubFunctions;
         std::unordered_set<uint32_t> m_stubFunctionStarts;
         std::unordered_map<uint32_t, std::string> m_stubHandlerBindingsByStart;
+        std::unordered_set<std::string> m_stubDenylist;
         std::unordered_set<uint32_t> m_entryPointHintStarts;
         std::unordered_set<uint32_t> m_correctnessCriticalFunctionStarts;
         std::map<uint32_t, std::string> m_generatedStubs;
