@@ -3,32 +3,10 @@
 
 namespace ps2_syscalls
 {
-    static int allocatePs2Fd(FILE *file)
+    static PS2VfsMounts currentVfsMounts()
     {
-        if (!file)
-            return -1;
-
-        std::lock_guard<std::mutex> lock(g_fd_mutex);
-        int fd = g_nextFd++;
-        g_fileDescriptors[fd] = file;
-        return fd;
-    }
-
-    static FILE *getHostFile(int ps2Fd)
-    {
-        std::lock_guard<std::mutex> lock(g_fd_mutex);
-        auto it = g_fileDescriptors.find(ps2Fd);
-        if (it != g_fileDescriptors.end())
-        {
-            return it->second;
-        }
-        return nullptr;
-    }
-
-    static void releasePs2Fd(int ps2Fd)
-    {
-        std::lock_guard<std::mutex> lock(g_fd_mutex);
-        g_fileDescriptors.erase(ps2Fd);
+        const PS2Runtime::IoPaths &paths = PS2Runtime::getIoPaths();
+        return {paths.hostRoot, paths.cdRoot, paths.mcRoot};
     }
 
     struct VagAccumEntry
@@ -39,39 +17,6 @@ namespace ps2_syscalls
     static std::unordered_map<int, VagAccumEntry> g_vagAccum;
     static std::mutex g_vagAccumMutex;
     static constexpr size_t kVagAccumMaxBytes = 16 * 1024 * 1024;
-
-    static const char *translateFioMode(int ps2Flags)
-    {
-        bool read = (ps2Flags & PS2_FIO_O_RDONLY) || (ps2Flags & PS2_FIO_O_RDWR);
-        bool write = (ps2Flags & PS2_FIO_O_WRONLY) || (ps2Flags & PS2_FIO_O_RDWR);
-        bool append = (ps2Flags & PS2_FIO_O_APPEND);
-        bool create = (ps2Flags & PS2_FIO_O_CREAT);
-        bool truncate = (ps2Flags & PS2_FIO_O_TRUNC);
-
-        if (read && write)
-        {
-            if (create && truncate)
-                return "w+b";
-            if (create)
-                return "a+b";
-            return "r+b";
-        }
-        else if (write)
-        {
-            if (append)
-                return "ab";
-            if (create && truncate)
-                return "wb";
-            if (create)
-                return "wx";
-            return "r+b";
-        }
-        else if (read)
-        {
-            return "rb";
-        }
-        return "rb";
-    }
 
     void fioOpen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -86,52 +31,32 @@ namespace ps2_syscalls
             return;
         }
 
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
+        if (!runtime)
         {
-            std::cerr << "fioOpen error: Failed to translate path '" << ps2Path << "'" << std::endl;
             setReturnS32(ctx, -1);
             return;
         }
 
-        const char *mode = translateFioMode(flags);
-        RUNTIME_LOG("fioOpen: '" << hostPath << "' flags=0x" << std::hex << flags << std::dec << " mode='" << mode << "'");
-
-        FILE *fp = ::fopen(hostPath.c_str(), mode);
-        if (!fp)
-        {
-            std::cerr << "fioOpen error: fopen failed for '" << hostPath << "': " << strerror(errno) << std::endl;
-            setReturnS32(ctx, -1); // e.g., -ENOENT, -EACCES
-            return;
-        }
-
-        int ps2Fd = allocatePs2Fd(fp);
-        if (ps2Fd < 0)
-        {
-            std::cerr << "fioOpen error: Failed to allocate PS2 file descriptor" << std::endl;
-            ::fclose(fp);
-            setReturnS32(ctx, -1); // e.g., -EMFILE
-            return;
-        }
-
-        // returns the PS2 file descriptor
-        setReturnS32(ctx, ps2Fd);
+        const int32_t descriptor = runtime->vfs().open(ps2Path, static_cast<uint32_t>(flags), currentVfsMounts(), runtime->romDevice());
+        setReturnS32(ctx, descriptor);
     }
 
     void fioClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         int ps2Fd = (int)getRegU32(ctx, 4);
 
-        FILE *fp = getHostFile(ps2Fd);
-        if (!fp)
+        if (!runtime)
         {
-            std::cerr << "fioClose warning: Invalid PS2 file descriptor " << ps2Fd << std::endl;
             setReturnS32(ctx, -1);
             return;
         }
 
-        int ret = ::fclose(fp);
-        releasePs2Fd(ps2Fd);
+        const int32_t ret = runtime->vfs().close(ps2Fd);
+        if (ret < 0)
+        {
+            setReturnS32(ctx, -1);
+            return;
+        }
 
         {
             std::lock_guard<std::mutex> lock(g_vagAccumMutex);
@@ -161,7 +86,7 @@ namespace ps2_syscalls
             }
         }
 
-        setReturnS32(ctx, ret == 0 ? 0 : -1);
+        setReturnS32(ctx, 0);
     }
 
     void fioRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -171,15 +96,13 @@ namespace ps2_syscalls
         size_t size = getRegU32(ctx, 6);      // $a2
 
         uint8_t *hostBuf = getMemPtr(rdram, bufAddr);
-        FILE *fp = getHostFile(ps2Fd);
-
         if (!hostBuf)
         {
             std::cerr << "fioRead error: Invalid buffer address for fd " << ps2Fd << std::endl;
             setReturnS32(ctx, -1); // -EFAULT
             return;
         }
-        if (!fp)
+        if (!runtime)
         {
             std::cerr << "fioRead error: Invalid file descriptor " << ps2Fd << std::endl;
             setReturnS32(ctx, -1); // -EBADF
@@ -191,22 +114,16 @@ namespace ps2_syscalls
             return;
         }
 
-        size_t bytesRead = 0;
+        const int64_t readResult = runtime->vfs().read(ps2Fd, hostBuf, size);
+        if (readResult < 0)
         {
-            std::lock_guard<std::mutex> lock(g_sys_fd_mutex);
-            bytesRead = fread(hostBuf, 1, size, fp);
+            setReturnS32(ctx, -1);
+            return;
         }
+        const size_t bytesRead = static_cast<size_t>(readResult);
         if (bytesRead > 0)
         {
             ps2TraceGuestRangeWrite(rdram, bufAddr, static_cast<uint32_t>(bytesRead), "fioRead", ctx);
-        }
-
-        if (bytesRead < size && ferror(fp))
-        {
-            std::cerr << "fioRead error: fread failed for fd " << ps2Fd << ": " << strerror(errno) << std::endl;
-            clearerr(fp);
-            setReturnS32(ctx, -1);
-            return;
         }
 
         {
@@ -254,8 +171,7 @@ namespace ps2_syscalls
             return;
         }
 
-        FILE *fp = getHostFile(ps2Fd);
-        if (!fp)
+        if (!runtime)
         {
             setReturnS32(ctx, -1); // -EFAULT
             return;
@@ -267,30 +183,28 @@ namespace ps2_syscalls
             return;
         }
 
-        size_t bytesWritten = 0;
+        const int64_t writeResult = runtime->vfs().write(ps2Fd, hostBuf, size);
+        if (writeResult < 0)
         {
-            std::lock_guard<std::mutex> lock(g_sys_fd_mutex);
-            bytesWritten = ::fwrite(hostBuf, 1, size, fp);
-            if (bytesWritten < size && ferror(fp))
-            {
-                clearerr(fp);
-                setReturnS32(ctx, -1); // -EIO, -ENOSPC etc.
-                return;
-            }
+            setReturnS32(ctx, -1);
+            return;
         }
 
         // returns number of bytes written
-        setReturnS32(ctx, (int32_t)bytesWritten);
+        setReturnS32(ctx, static_cast<int32_t>(writeResult));
     }
 
-    // Seeks a guest descriptor and returns the new position, or -1.
-    static int64_t seekHostFile(const char *caller, int ps2Fd, int64_t offset, int whence)
+    void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        FILE *fp = getHostFile(ps2Fd);
-        if (!fp)
+        int ps2Fd = (int)getRegU32(ctx, 4);  // $a0
+        int32_t offset = getRegU32(ctx, 5);  // $a1 (PS2 seems to use 32-bit offset here commonly)
+        int whence = (int)getRegU32(ctx, 6); // $a2 (PS2 FIO_SEEK constants)
+
+        if (!runtime)
         {
-            std::cerr << caller << " error: Invalid file descriptor " << ps2Fd << std::endl;
-            return -1; // -EBADF
+            std::cerr << "fioLseek error: Invalid file descriptor " << ps2Fd << std::endl;
+            setReturnS32(ctx, -1); // -EBADF
+            return;
         }
 
         int hostWhence;
@@ -306,48 +220,51 @@ namespace ps2_syscalls
             hostWhence = SEEK_END;
             break;
         default:
-            std::cerr << caller << " error: Invalid whence value " << whence << " for fd " << ps2Fd << std::endl;
-            return -1; // -EINVAL
-        }
-
-#ifdef _WIN32
-        const int seekResult = ::_fseeki64(fp, offset, hostWhence);
-        const int64_t newPos = seekResult == 0 ? ::_ftelli64(fp) : -1;
-#else
-        const int seekResult = ::fseeko(fp, static_cast<off_t>(offset), hostWhence);
-        const int64_t newPos = seekResult == 0 ? static_cast<int64_t>(::ftello(fp)) : -1;
-#endif
-        if (newPos < 0)
-        {
-            std::cerr << caller << " error: seek failed for fd " << ps2Fd << ": " << strerror(errno) << std::endl;
-            return -1;
-        }
-        return newPos;
-    }
-
-    void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        int ps2Fd = (int)getRegU32(ctx, 4);  // $a0
-        int32_t offset = getRegU32(ctx, 5);  // $a1 (PS2 seems to use 32-bit offset here commonly)
-        int whence = (int)getRegU32(ctx, 6); // $a2 (PS2 FIO_SEEK constants)
-
-        const int64_t newPos = seekHostFile("fioLseek", ps2Fd, offset, whence);
-        if (newPos > 0xFFFFFFFFLL)
-        {
-            std::cerr << "fioLseek warning: New position exceeds 32-bit for fd " << ps2Fd << std::endl;
-            setReturnS32(ctx, -1);
+            std::cerr << "fioLseek error: Invalid whence value " << whence << " for fd " << ps2Fd << std::endl;
+            setReturnS32(ctx, -1); // -EINVAL
             return;
         }
-        setReturnS32(ctx, (int32_t)newPos);
+
+        const int64_t newPos = runtime->vfs().seek(ps2Fd, offset, hostWhence);
+        if (newPos < 0)
+        {
+            setReturnS32(ctx, -1);
+        }
+        else
+        {
+            if (static_cast<uint64_t>(newPos) > 0x7FFFFFFFu)
+            {
+                std::cerr << "fioLseek warning: New position exceeds 32-bit for fd " << ps2Fd << std::endl;
+                setReturnS32(ctx, -1);
+            }
+            else
+            {
+                setReturnS32(ctx, (int32_t)newPos);
+            }
+        }
     }
 
     void fioLseek64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        int ps2Fd = (int)getRegU32(ctx, 4);                     // $a0
-        const int64_t offset = _mm_cvtsi128_si64(ctx->r[5]);    // $a1, the whole 64-bit register
-        int whence = (int)getRegU32(ctx, 6);                    // $a2
+        const int ps2Fd = (int)getRegU32(ctx, 4);                  // $a0
+        const int64_t offset = _mm_cvtsi128_si64(ctx->r[5]);       // $a1, the whole 64-bit register
+        const int whence = (int)getRegU32(ctx, 6);                 // $a2
 
-        setReturnU64(ctx, static_cast<uint64_t>(seekHostFile("fioLseek64", ps2Fd, offset, whence)));
+        int hostWhence = -1;
+        switch (whence)
+        {
+        case PS2_FIO_SEEK_SET:
+            hostWhence = SEEK_SET;
+            break;
+        case PS2_FIO_SEEK_CUR:
+            hostWhence = SEEK_CUR;
+            break;
+        case PS2_FIO_SEEK_END:
+            hostWhence = SEEK_END;
+            break;
+        }
+        const int64_t newPos = (runtime && hostWhence >= 0) ? runtime->vfs().seek(ps2Fd, offset, hostWhence) : -1;
+        setReturnU64(ctx, static_cast<uint64_t>(newPos));
     }
 
     void fioMkdir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -362,8 +279,8 @@ namespace ps2_syscalls
             setReturnS32(ctx, -1); // -EFAULT
             return;
         }
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
+        std::filesystem::path hostPath;
+        if (!runtime || !runtime->vfs().resolveHostPath(ps2Path, currentVfsMounts(), hostPath))
         {
             std::cerr << "fioMkdir error: Failed to translate path '" << ps2Path << "'" << std::endl;
             setReturnS32(ctx, -1);
@@ -374,13 +291,13 @@ namespace ps2_syscalls
 
         if (!success && ec)
         {
-            std::cerr << "fioMkdir error: create_directory failed for '" << hostPath
+            std::cerr << "fioMkdir error: create_directory failed for '" << hostPath.string()
                       << "': " << ec.message() << std::endl;
             setReturnS32(ctx, -1);
         }
         else
         {
-            RUNTIME_LOG("fioMkdir: Created directory '" << hostPath << "'");
+            RUNTIME_LOG("fioMkdir: Created directory '" << hostPath.string() << "'");
             setReturnS32(ctx, 0); // Success
         }
     }
@@ -396,27 +313,14 @@ namespace ps2_syscalls
             return;
         }
 
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
+        PS2VfsStat status;
+        if (!runtime || !runtime->vfs().stat(ps2Path, currentVfsMounts(), runtime->romDevice(), status) || !status.directory)
         {
-            std::cerr << "fioChdir error: Failed to translate path '" << ps2Path << "'" << std::endl;
-            setReturnS32(ctx, -1);
-            return;
-        }
-
-        std::error_code ec;
-        std::filesystem::current_path(hostPath, ec);
-
-        if (ec)
-        {
-            std::cerr << "fioChdir error: current_path failed for '" << hostPath
-                      << "': " << ec.message() << std::endl;
             setReturnS32(ctx, -1);
         }
         else
         {
-            RUNTIME_LOG("fioChdir: Changed directory to '" << hostPath << "'");
-            setReturnS32(ctx, 0); // Success
+            setReturnS32(ctx, 0);
         }
     }
 
@@ -430,8 +334,8 @@ namespace ps2_syscalls
             setReturnS32(ctx, -1);
             return;
         }
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
+        std::filesystem::path hostPath;
+        if (!runtime || !runtime->vfs().resolveHostPath(ps2Path, currentVfsMounts(), hostPath))
         {
             std::cerr << "fioRmdir error: Failed to translate path '" << ps2Path << "'" << std::endl;
             setReturnS32(ctx, -1);
@@ -443,13 +347,12 @@ namespace ps2_syscalls
 
         if (!success || ec)
         {
-            std::cerr << "fioRmdir error: remove failed for '" << hostPath
-                      << "': " << ec.message() << std::endl;
+            std::cerr << "fioRmdir error: remove failed for '" << hostPath.string() << "': " << ec.message() << std::endl;
             setReturnS32(ctx, -1);
         }
         else
         {
-            RUNTIME_LOG("fioRmdir: Removed directory '" << hostPath << "'");
+            RUNTIME_LOG("fioRmdir: Removed directory '" << hostPath.string() << "'");
             setReturnS32(ctx, 0); // Success
         }
     }
@@ -475,49 +378,28 @@ namespace ps2_syscalls
             return;
         }
 
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
-        {
-            std::cerr << "fioGetstat error: Bad path translate" << std::endl;
-            setReturnS32(ctx, -1);
-            return;
-        }
-
-        // A missing file is an ordinary answer, not an error worth logging.
-        std::error_code ec;
-        const auto status = std::filesystem::status(hostPath, ec);
-        if (ec || !std::filesystem::exists(status))
+        if (!runtime)
         {
             setReturnS32(ctx, -1);
             return;
         }
 
-        // iomanX stat layout (iox_stat_t, 64 bytes): mode, attr, size, then
-        // ctime, atime and mtime as 8-byte PS2 timestamps, hisize, 6 private words.
-        // The permission bits share POSIX's values, so the host's carry over.
-        constexpr uint32_t kStatIfReg = 0x2000u;
-        constexpr uint32_t kStatIfDir = 0x1000u;
-        const bool isDir = std::filesystem::is_directory(status);
-        const uint32_t mode = (isDir ? kStatIfDir : kStatIfReg) |
-                              (static_cast<uint32_t>(status.permissions()) & 0x1FFu);
-        const uint64_t size = isDir ? 0u : static_cast<uint64_t>(std::filesystem::file_size(hostPath, ec));
-        const auto mtime = std::filesystem::last_write_time(hostPath, ec);
-
-        uint8_t stat[64] = {};
-        const uint32_t sizeLo = static_cast<uint32_t>(size);
-        const uint32_t sizeHi = static_cast<uint32_t>(size >> 32);
-        std::memcpy(stat + 0x00, &mode, sizeof(mode));
-        std::memcpy(stat + 0x08, &sizeLo, sizeof(sizeLo));
-        if (!ec)
+        PS2VfsStat status;
+        if (!runtime->vfs().stat(ps2Path, currentVfsMounts(), runtime->romDevice(), status))
         {
-            // The host only keeps a modification time, so it stands in for all three.
-            const std::time_t t = fileTimeToTimeT(mtime);
-            encodePs2Time(t, stat + 0x0C);
-            encodePs2Time(t, stat + 0x14);
-            encodePs2Time(t, stat + 0x1C);
+            setReturnS32(ctx, -1);
+            return;
         }
-        std::memcpy(stat + 0x24, &sizeHi, sizeof(sizeHi));
-        std::memcpy(ps2StatBuf, stat, sizeof(stat));
+
+        io_stat_t guest{};
+        guest.mode = (status.directory ? kFioSoIfDir : kFioSoIfReg) | kFioSoIROth | kFioSoIXOth | (status.readOnly ? 0u : kFioSoIWOth);
+        guest.size = static_cast<uint32_t>(status.size & 0xFFFFFFFFu);
+        guest.hisize = static_cast<uint32_t>(status.size >> 32u);
+        encodePs2Time(status.created, guest.ctime);
+        encodePs2Time(status.accessed, guest.atime);
+        encodePs2Time(status.modified, guest.mtime);
+        std::memcpy(ps2StatBuf, &guest, sizeof(guest));
+        ps2TraceGuestRangeWrite(rdram, statBufAddr, sizeof(guest), "fioGetstat", ctx);
         setReturnS32(ctx, 0);
     }
 
@@ -532,8 +414,8 @@ namespace ps2_syscalls
             return;
         }
 
-        std::string hostPath = translatePs2Path(ps2Path);
-        if (hostPath.empty())
+        std::filesystem::path hostPath;
+        if (!runtime || !runtime->vfs().resolveHostPath(ps2Path, currentVfsMounts(), hostPath))
         {
             std::cerr << "fioRemove error: Path translate fail" << std::endl;
             setReturnS32(ctx, -1);
@@ -545,13 +427,12 @@ namespace ps2_syscalls
 
         if (!success || ec)
         {
-            std::cerr << "fioRemove error: remove failed for '" << hostPath
-                      << "': " << ec.message() << std::endl;
+            std::cerr << "fioRemove error: remove failed for '" << hostPath.string() << "': " << ec.message() << std::endl;
             setReturnS32(ctx, -1);
         }
         else
         {
-            RUNTIME_LOG("fioRemove: Removed file '" << hostPath << "'");
+            RUNTIME_LOG("fioRemove: Removed file '" << hostPath.string() << "'");
             setReturnS32(ctx, 0); // Success
         }
     }

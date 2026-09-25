@@ -69,23 +69,8 @@ namespace ps2recomp
 
     MemoryAccessHint InstructionTranslator::effectiveMemoryHintFor(const Instruction &inst, const MemoryAccessHint &memoryHint) const
     {
-        MemoryAccessHint effectiveMemoryHint = memoryHint;
-        if (inst.isMmio)
-        {
-            // The analyzer records one address per instruction, and it only
-            // tracks the lui, so a lui/ori pair collapses to the page base:
-            // PsRnd::VSync writes T1_MODE (0x10000810) and polls T1_COUNT
-            // (0x10000800), but both were emitted as 0x10000000, landing on
-            // timer 0 and leaving CUE clear so the poll never terminated.
-            //
-            // MMIO accesses are rare and already go through runtime->LoadN and
-            // runtime->StoreN, which dispatch on the address they are handed, so
-            // compute it from the base register instead of trusting a constant.
-            effectiveMemoryHint.hasAddress = false;
-            effectiveMemoryHint.address = 0;
-        }
-
-        return effectiveMemoryHint;
+        // TODO disable for now since it causing issues with some games.
+        return memoryHint;
     }
 
     std::string InstructionTranslator::translateMemoryRead(const Instruction &inst,
@@ -199,11 +184,11 @@ namespace ps2recomp
         case OPCODE_LW:
             return fmt::format("SET_GPR_S32(ctx, {}, (int32_t){});", inst.rt, genRead(32, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
         case OPCODE_LBU:
-            return fmt::format("SET_GPR_U32(ctx, {}, (uint8_t){});", inst.rt, genRead(8, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
+            return fmt::format("SET_GPR_ZE32(ctx, {}, (uint8_t){});", inst.rt, genRead(8, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
         case OPCODE_LHU:
-            return fmt::format("SET_GPR_U32(ctx, {}, (uint16_t){});", inst.rt, genRead(16, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
+            return fmt::format("SET_GPR_ZE32(ctx, {}, (uint16_t){});", inst.rt, genRead(16, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
         case OPCODE_LWU:
-            return fmt::format("SET_GPR_U32(ctx, {}, {});", inst.rt, genRead(32, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
+            return fmt::format("SET_GPR_ZE32(ctx, {}, {});", inst.rt, genRead(32, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
         case OPCODE_SB:
             return genWrite(8, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate), fmt::format("(uint8_t)GPR_U32(ctx, {})", inst.rt)) + ";";
         case OPCODE_SH:
