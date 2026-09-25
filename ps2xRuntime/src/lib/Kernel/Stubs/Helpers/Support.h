@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cctype>
 
+#include "runtime/ps2_disc_image.h"
+
 namespace
 {
     constexpr uint32_t kCdSectorSize = 2048;
@@ -183,6 +185,12 @@ namespace
 
     bool tryGetCdImageTotalSectors(uint64_t &totalSectorsOut)
     {
+        if (DiscImage *disc = ps2ConfiguredDisc())
+        {
+            totalSectorsOut = disc->sectorCount();
+            return true;
+        }
+
         const std::filesystem::path imagePath = getCdImagePath();
         if (imagePath.empty())
         {
@@ -339,6 +347,25 @@ namespace
             return true;
         }
 
+        // On a disc image, files sit at their real LBNs.
+        if (DiscImage *disc = ps2ConfiguredDisc())
+        {
+            DiscImage::Extent extent;
+            if (!disc->find(ps2Path, extent) || extent.isDir)
+            {
+                g_lastCdError = -1;
+                return false;
+            }
+            CdFileEntry entry;
+            entry.sizeBytes = extent.size;
+            entry.baseLbn = extent.lbn;
+            entry.sectors = sectorsForBytes(extent.size);
+            g_cdFilesByKey.emplace(key, entry);
+            entryOut = entry;
+            g_lastCdError = 0;
+            return true;
+        }
+
         const std::filesystem::path root = getCdRootPath();
         std::filesystem::path path = cdHostPath(ps2Path);
         std::error_code ec;
@@ -434,6 +461,20 @@ namespace
 
     bool readCdSectors(uint32_t lbn, uint32_t sectors, uint8_t *dst, size_t byteCount)
     {
+        if (DiscImage *disc = ps2ConfiguredDisc())
+        {
+            // byteCount can stop short of whole sectors at the end of guest RAM.
+            std::vector<uint8_t> data(static_cast<size_t>(sectors) * kCdSectorSize);
+            const bool ok = static_cast<uint64_t>(lbn) + sectors <= disc->sectorCount() &&
+                            disc->readSectors(lbn, sectors, data.data());
+            g_lastCdError = ok ? 0 : -1;
+            if (ok)
+            {
+                std::memcpy(dst, data.data(), std::min(byteCount, data.size()));
+            }
+            return ok;
+        }
+
         for (const auto &[key, entry] : g_cdFilesByKey)
         {
             const uint32_t endLbn = entry.baseLbn + entry.sectors;

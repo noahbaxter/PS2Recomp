@@ -220,6 +220,14 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        // An optional disc image serves cdrom0: in place of the ELF's directory.
+        if (argc >= 3 && argv[2] && argv[2][0] != '\0')
+        {
+            PS2Runtime::IoPaths paths = PS2Runtime::getIoPaths();
+            paths.cdImage = argv[2];
+            PS2Runtime::setIoPaths(paths);
+        }
+
         if (!runtime.loadELF(filePathStr))
         {
             std::cerr << "Failed to load ELF file: " << filePathStr << std::endl;
