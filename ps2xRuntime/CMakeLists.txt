@@ -380,6 +380,7 @@ add_library(ps2_runtime STATIC
     src/lib/gs/ps2_gif_arbiter.cpp
     src/lib/ps2_audio.cpp
     src/lib/ps2_audio_vag.cpp
+    src/lib/ps2_disc_image.cpp
     src/lib/gs/ps2_gs_memory.cpp
     src/lib/gs/gs_frontend.cpp
     src/lib/gs/gs_cpu_backend.cpp
@@ -428,6 +429,14 @@ endif()
 target_compile_definitions(ps2_runtime PRIVATE
     PS2X_HAS_FFMPEG=$<BOOL:${PS2X_ENABLE_FFMPEG}>
 )
+
+# CHD disc images, when the parent build provides libchdr's static target.
+if(TARGET chdr-static)
+    target_link_libraries(ps2_runtime PRIVATE chdr-static)
+    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAS_CHD=1)
+else()
+    target_compile_definitions(ps2_runtime PRIVATE PS2X_HAS_CHD=0)
+endif()
 
 file(GLOB_RECURSE KERNEL_SRC_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/Kernel/*.cpp"
