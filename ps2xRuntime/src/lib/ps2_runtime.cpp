@@ -731,10 +731,13 @@ bool PS2Runtime::initialize(const char *title)
 #if defined(PLATFORM_VITA)
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title); // raylib vita does not support audio
 #else
-        SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+        SetConfigFlags(FLAG_WINDOW_RESIZABLE | (m_hostOptions.hidden ? FLAG_WINDOW_HIDDEN : 0u));
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
-        InitAudioDevice();
-        m_audioBackend.setAudioReady(IsAudioDeviceReady());
+        if (!m_hostOptions.mute)
+        {
+            InitAudioDevice();
+        }
+        m_audioBackend.setAudioReady(!m_hostOptions.mute && IsAudioDeviceReady());
 #endif
         SetTargetFPS(60);
         if (m_debugUiInitCallback)
@@ -2361,6 +2364,7 @@ void PS2Runtime::run()
     Image blank = GenImageColor(FB_WIDTH, FB_HEIGHT, BLANK);
     Texture2D frameTex = LoadTextureFromImage(blank);
     UnloadImage(blank);
+    uint64_t presentedFrames = 0;
 
     std::atomic<bool> gameThreadFinished{false};
 
@@ -2423,6 +2427,18 @@ void PS2Runtime::run()
         uint32_t presentWidth = FB_WIDTH;
         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
         UploadFrame(frameTex, this, presentWidth, presentHeight);
+
+        // Read back from the frame texture rather than the window, so a hidden
+        // window still yields the guest's picture.
+        if (m_hostOptions.shotEvery != 0u && ++presentedFrames % m_hostOptions.shotEvery == 0u)
+        {
+            Image frame = LoadImageFromTexture(frameTex);
+            ImageCrop(&frame, Rectangle{0.0f, 0.0f, static_cast<float>(presentWidth), static_cast<float>(presentHeight)});
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%06llu.png", static_cast<unsigned long long>(presentedFrames));
+            ExportImage(frame, (m_hostOptions.shotDir / name).string().c_str());
+            UnloadImage(frame);
+        }
 
         BeginDrawing();
         ClearBackground(BLACK);

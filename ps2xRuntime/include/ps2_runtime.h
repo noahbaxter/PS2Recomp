@@ -286,9 +286,19 @@ public:
         std::filesystem::path cdImage;
     };
 
+    // How the host window behaves, for unattended runs. Set before initialize().
+    struct HostOptions
+    {
+        bool hidden = false;         // never show the window
+        bool mute = false;           // open no audio device
+        std::filesystem::path shotDir; // write the guest frame here as PNG
+        uint32_t shotEvery = 0;      // every Nth presented frame; 0 is off
+    };
+
     PS2Runtime();
     ~PS2Runtime();
 
+    void setHostOptions(const HostOptions &options) { m_hostOptions = options; }
     bool initialize(const char *title = "PS2 Game");
     bool syncCoreSubsystems();
     bool loadELF(const std::string &elfPath);
@@ -528,6 +538,7 @@ private:
     DebugUiCallback m_debugUiShutdownCallback = nullptr;
     void *m_debugUiUserData = nullptr;
     bool m_debugUiInitialized = false;
+    HostOptions m_hostOptions;
 
 public:
     std::atomic<uint32_t> m_debugPc{0};

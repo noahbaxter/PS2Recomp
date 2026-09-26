@@ -140,6 +140,13 @@ namespace
 
 std::unique_ptr<DiscImage> DiscImage::open(const std::filesystem::path &path, std::string &error)
 {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec))
+    {
+        error = "file not found";
+        return nullptr;
+    }
+
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c)
                    { return static_cast<char>(std::tolower(c)); });

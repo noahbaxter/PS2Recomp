@@ -1,5 +1,6 @@
 #include "ps2_runtime.h"
 #include "games_database.h"
+#include "runtime/ps2_disc_image.h"
 #if defined(PS2X_ENABLE_DEBUG_UI) && !defined(PLATFORM_VITA)
 #include "ps2_debug_panel.h"
 #endif
@@ -193,7 +194,38 @@ int main(int argc, char *argv[])
             windowTitle += elfName;
         }
 
+        // After the ELF: a disc image, then options for unattended runs.
+        //   <elf> [disc] [--hidden] [--mute] [--mc <dir>] [--shots <dir>] [--shot-every <n>]
+        std::filesystem::path discPath;
+        std::filesystem::path mcRoot;
+        PS2Runtime::HostOptions hostOptions;
+        for (int i = 2; i < argc; ++i)
+        {
+            const std::string arg = argv[i];
+            const bool hasValue = i + 1 < argc;
+            if (arg == "--hidden")
+                hostOptions.hidden = true;
+            else if (arg == "--mute")
+                hostOptions.mute = true;
+            else if (arg == "--mc" && hasValue)
+                mcRoot = argv[++i];
+            else if (arg == "--shots" && hasValue)
+                hostOptions.shotDir = argv[++i];
+            else if (arg == "--shot-every" && hasValue)
+                hostOptions.shotEvery = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+            else if (!arg.empty() && arg[0] != '-' && discPath.empty())
+                discPath = arg;
+            else
+            {
+                std::cerr << "unknown argument: " << arg << std::endl;
+                return 2;
+            }
+        }
+        if (!hostOptions.shotDir.empty() && hostOptions.shotEvery == 0u)
+            hostOptions.shotEvery = 60u;
+
         PS2Runtime runtime;
+        runtime.setHostOptions(hostOptions);
 #if defined(PS2X_ENABLE_DEBUG_UI) && !defined(PLATFORM_VITA)
         // This hook is to prevent leak rlimgui deps to recompiler etc
         PS2DebugPanel debugPanel;
@@ -220,18 +252,30 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        // An optional disc image serves cdrom0: in place of the ELF's directory.
-        if (argc >= 3 && argv[2] && argv[2][0] != '\0')
+        // A disc image serves cdrom0: in place of the ELF's directory.
+        if (!discPath.empty())
         {
             PS2Runtime::IoPaths paths = PS2Runtime::getIoPaths();
-            paths.cdImage = argv[2];
+            paths.cdImage = discPath;
             PS2Runtime::setIoPaths(paths);
+            if (!ps2ConfiguredDisc())
+            {
+                return 1;
+            }
         }
 
         if (!runtime.loadELF(filePathStr))
         {
             std::cerr << "Failed to load ELF file: " << filePathStr << std::endl;
             return 1;
+        }
+
+        // loadELF points the memory card beside the ELF, so this goes after.
+        if (!mcRoot.empty())
+        {
+            PS2Runtime::IoPaths paths = PS2Runtime::getIoPaths();
+            paths.mcRoot = mcRoot;
+            PS2Runtime::setIoPaths(paths);
         }
 
         runtime.run();
