@@ -406,6 +406,9 @@ public:
 
     EeScheduler &eeScheduler();
     const EeScheduler &eeScheduler() const;
+    // MFC0/MTC0 Count, as generated code emits them.
+    uint32_t cop0Count() const;
+    void setCop0Count(uint32_t value);
     void postEeEvent(EeEvent event);
     bool eeCheckpointDue(uint32_t cycles = 32u) noexcept;
     [[noreturn]] void eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc);

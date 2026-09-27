@@ -278,6 +278,18 @@ public:
     void run();
     void requestStop();
     void postEvent(EeEvent event);
+
+    // COP0 Count ticks once per EE cycle (ps2tek) and is one register for
+    // every thread, so it reads off the scheduler's clock. A write sets the
+    // offset from that clock.
+    [[nodiscard]] uint32_t readCount() const noexcept
+    {
+        return static_cast<uint32_t>(m_eeCycle) + m_countOffset;
+    }
+    void writeCount(uint32_t value) noexcept
+    {
+        m_countOffset = value - static_cast<uint32_t>(m_eeCycle);
+    }
     [[nodiscard]] bool checkpointDue(uint32_t cycles = kGeneratedCheckpointCycles) noexcept;
     void accountCycles(uint32_t cycles) noexcept;
     [[nodiscard]] bool isExecutingGuest() const noexcept;
@@ -426,6 +438,7 @@ private:
     bool m_insideInterrupt = false;
     uint32_t m_pendingEeTimerInterrupts = 0;
     uint64_t m_eeCycle = 0;
+    uint32_t m_countOffset = 0;
     uint64_t m_sliceEndCycle = kDefaultTimeSliceCycles;
     std::thread::id m_executorThread{};
     std::atomic<bool> m_running{false};

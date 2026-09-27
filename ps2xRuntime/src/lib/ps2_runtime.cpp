@@ -2202,6 +2202,16 @@ EeScheduler &PS2Runtime::eeScheduler()
     return *m_eeScheduler;
 }
 
+uint32_t PS2Runtime::cop0Count() const
+{
+    return m_eeScheduler->readCount();
+}
+
+void PS2Runtime::setCop0Count(uint32_t value)
+{
+    m_eeScheduler->writeCount(value);
+}
+
 const EeScheduler &PS2Runtime::eeScheduler() const
 {
     return *m_eeScheduler;
