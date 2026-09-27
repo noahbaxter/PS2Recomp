@@ -728,6 +728,10 @@ bool PS2Runtime::initialize(const char *title)
             std::cerr << "Failed to bind runtime core subsystems" << std::endl;
             return false;
         }
+        if (m_hostFrontend)
+        {
+            return m_hostFrontend->initialize(*this, title);
+        }
 #if defined(PLATFORM_VITA)
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title); // raylib vita does not support audio
 #else
@@ -2371,9 +2375,13 @@ void PS2Runtime::run()
     RUNTIME_LOG("Starting execution at address 0x" << std::hex << m_cpuContext.pc << std::dec);
 
     // A blank image to use as a framebuffer
-    Image blank = GenImageColor(FB_WIDTH, FB_HEIGHT, BLANK);
-    Texture2D frameTex = LoadTextureFromImage(blank);
-    UnloadImage(blank);
+    Texture2D frameTex{};
+    if (!m_hostFrontend)
+    {
+        Image blank = GenImageColor(FB_WIDTH, FB_HEIGHT, BLANK);
+        frameTex = LoadTextureFromImage(blank);
+        UnloadImage(blank);
+    }
     uint64_t presentedFrames = 0;
 
     std::atomic<bool> gameThreadFinished{false};
@@ -2434,6 +2442,16 @@ void PS2Runtime::run()
 
             }
         });
+        if (m_hostFrontend)
+        {
+            if (!m_hostFrontend->frame(*this))
+            {
+                requestStop();
+                break;
+            }
+            continue;
+        }
+
         uint32_t presentWidth = FB_WIDTH;
         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
         UploadFrame(frameTex, this, presentWidth, presentHeight);
@@ -2484,6 +2502,13 @@ void PS2Runtime::run()
     if (gameThread.joinable())
     {
         gameThread.join();
+    }
+
+    if (m_hostFrontend)
+    {
+        m_hostFrontend->shutdown(*this);
+        RUNTIME_LOG("[run] exiting loop");
+        return;
     }
 
     if (m_debugUiInitialized && m_debugUiShutdownCallback)

@@ -295,10 +295,26 @@ public:
         uint32_t shotEvery = 0;      // every Nth presented frame; 0 is off
     };
 
+    // A host program's own window and frame loop, in place of raylib's. With
+    // one installed, initialize() opens no raylib window or audio device and
+    // run() calls frame() on the host thread while the game thread runs.
+    class HostFrontend
+    {
+    public:
+        virtual ~HostFrontend() = default;
+        virtual bool initialize(PS2Runtime &runtime, const char *title) = 0;
+        // One host iteration. Returning false stops the runtime.
+        virtual bool frame(PS2Runtime &runtime) = 0;
+        virtual void shutdown(PS2Runtime &runtime) = 0;
+    };
+
     PS2Runtime();
     ~PS2Runtime();
 
     void setHostOptions(const HostOptions &options) { m_hostOptions = options; }
+    const HostOptions &hostOptions() const { return m_hostOptions; }
+    // Set before initialize().
+    void setHostFrontend(std::unique_ptr<HostFrontend> frontend) { m_hostFrontend = std::move(frontend); }
     bool initialize(const char *title = "PS2 Game");
     bool syncCoreSubsystems();
     bool loadELF(const std::string &elfPath);
@@ -544,6 +560,7 @@ private:
     void *m_debugUiUserData = nullptr;
     bool m_debugUiInitialized = false;
     HostOptions m_hostOptions;
+    std::unique_ptr<HostFrontend> m_hostFrontend;
 
 public:
     std::atomic<uint32_t> m_debugPc{0};
