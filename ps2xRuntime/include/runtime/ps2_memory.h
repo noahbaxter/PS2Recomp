@@ -23,8 +23,20 @@
 
 class GS;
 
-constexpr uint32_t PS2_RAM_SIZE = 32u * 1024u * 1024u; // 32MB
-constexpr uint32_t PS2_RAM_MASK = PS2_RAM_SIZE - 1u;   // Mask for 32MB alignment
+// EE RAM. Retail units have 32MB; development units (TOOL) have 128MB, which
+// PCSX2 offers as "Extended RAM". Physical RAM ends below the IO registers at
+// 0x10000000, so 256MB is the ceiling.
+#ifndef PS2X_EE_RAM_MB
+#define PS2X_EE_RAM_MB 32
+#endif
+constexpr uint32_t PS2_RAM_SIZE = PS2X_EE_RAM_MB * 1024u * 1024u;
+constexpr uint32_t PS2_RAM_MASK = PS2_RAM_SIZE - 1u;
+static_assert(PS2_RAM_SIZE >= 32u * 1024u * 1024u && PS2_RAM_SIZE <= 256u * 1024u * 1024u,
+              "PS2X_EE_RAM_MB must be between 32 and 256");
+// The top of RAM holds the runtime's own guest memory (RPC pools, TLS,
+// invocation stacks), where the real kernel's thread stack would begin.
+constexpr uint32_t PS2_RUNTIME_RESERVED_SIZE = 0x00100000u;
+constexpr uint32_t PS2_RUNTIME_RESERVED_BASE = PS2_RAM_SIZE - PS2_RUNTIME_RESERVED_SIZE;
 constexpr uint32_t PS2_RAM_BASE = 0x00000000;          // Physical base of RDRAM
 constexpr uint32_t PS2_SCRATCHPAD_BASE = 0x70000000;
 constexpr uint32_t PS2_SCRATCHPAD_ALIAS_BASE = 0xF0000000;

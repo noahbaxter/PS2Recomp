@@ -14,6 +14,7 @@ option(PS2X_ENABLE_RUNTIME_LOGS "Enable PS2 runtime logs" ON)
 option(PS2X_ENABLE_AGRESSIVE_LOGS "Enable very verbose/agressive PS2 runtime logs" ON)
 option(PS2X_ENABLE_IOP_RPC_TRACE "Log unhandled IOP/SIF RPC trace suggestions" ON)
 option(PS2X_STRICT_RETURN_DIAGNOSTICS "Route generated JR $ra returns through runtime branch diagnostics" OFF)
+set(PS2X_EE_RAM_MB 32 CACHE STRING "EE RAM in MB: 32 as retail, up to 256 (128 matches a dev unit)")
 option(PS2X_SHOW_WINDOWS_CONSOLE "Show a console window for ps2EntryRunner on Windows release builds" ON)
 option(PS2X_ENABLE_DEBUG_UI "Build the desktop runtime debug UI" ON)
 
@@ -425,6 +426,11 @@ if(PS2X_STRICT_RETURN_DIAGNOSTICS)
         PS2X_STRICT_RETURN_DIAGNOSTICS=1
     )
 endif()
+
+# Public, so generated code and the runtime agree on the size.
+target_compile_definitions(ps2_runtime PUBLIC
+    PS2X_EE_RAM_MB=${PS2X_EE_RAM_MB}
+)
 
 target_compile_definitions(ps2_runtime PRIVATE
     PS2X_HAS_FFMPEG=$<BOOL:${PS2X_ENABLE_FFMPEG}>

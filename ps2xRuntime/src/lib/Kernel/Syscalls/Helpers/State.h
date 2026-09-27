@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "runtime/ps2_memory.h"
+
 // Thread status
 #define THS_RUN 0x01
 #define THS_READY 0x02
@@ -243,20 +245,20 @@ inline std::filesystem::path g_cdrom_cwd;
 inline std::string g_ps2_cwd_device = "host0";
 
 static constexpr uint32_t kRpcPacketSize = 64;
-static constexpr uint32_t kRpcPacketPoolBase = 0x01F00000;
+static constexpr uint32_t kRpcPacketPoolBase = PS2_RUNTIME_RESERVED_BASE;
 static constexpr uint32_t kRpcPacketPoolBytes = 0x00010000;
 static constexpr uint32_t kRpcPacketPoolCount = kRpcPacketPoolBytes / kRpcPacketSize;
-static constexpr uint32_t kRpcServerPoolBase = 0x01F10000;
+static constexpr uint32_t kRpcServerPoolBase = PS2_RUNTIME_RESERVED_BASE + 0x00010000;
 static constexpr uint32_t kRpcServerPoolBytes = 0x00010000;
 static constexpr uint32_t kRpcServerStride = 0x80;
 static constexpr uint32_t kRpcServerPoolCount = kRpcServerPoolBytes / kRpcServerStride;
 
-static constexpr uint32_t kTlsPoolBase = 0x01F20000;
+static constexpr uint32_t kTlsPoolBase = PS2_RUNTIME_RESERVED_BASE + 0x00020000;
 static constexpr uint32_t kTlsPoolBytes = 0x00010000;
 static constexpr uint32_t kTlsBlockSize = 0x100;
 static constexpr uint32_t kTlsPoolCount = kTlsPoolBytes / kTlsBlockSize;
 
-static constexpr uint32_t kBootModePoolBase = 0x01F30000;
+static constexpr uint32_t kBootModePoolBase = PS2_RUNTIME_RESERVED_BASE + 0x00030000;
 static constexpr uint32_t kBootModePoolBytes = 0x00001000;
 
 static constexpr uint32_t kSifRpcModeNowait = 0x01;
