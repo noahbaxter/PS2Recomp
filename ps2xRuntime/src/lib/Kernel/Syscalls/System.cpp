@@ -484,50 +484,21 @@ namespace ps2_syscalls
             setRegU32(ctx, 28, gp);
         }
 
+        // The kernel returns the top of the stack, less a reserve for the
+        // thread's saved context (Play!'s STACKRES). stack == -1 puts the
+        // stack at the end of memory, which here ends where the runtime's
+        // reserved region begins.
+        static constexpr uint32_t kStackReserve = 0x2A0u;
         uint32_t sp = currentSp;
         uint32_t initialStack = 0u;
         const uint32_t stackSize = stackSizeSigned > 0
                                        ? static_cast<uint32_t>(stackSizeSigned)
                                        : 0u;
-        if (stack == 0xFFFFFFFFu)
+        if (stack != 0u)
         {
-            if (stackSizeSigned > 0)
-            {
-                const uint32_t requestedSize = static_cast<uint32_t>(stackSizeSigned);
-                if (requestedSize < PS2_RAM_SIZE)
-                {
-                    sp = PS2_RAM_SIZE - requestedSize;
-                }
-                else
-                {
-                    sp = PS2_RAM_SIZE;
-                }
-            }
-            else
-            {
-                sp = PS2_RAM_SIZE;
-            }
-        }
-        else if (stack != 0u)
-        {
-            if (stackSizeSigned > 0)
-            {
-                sp = stack + static_cast<uint32_t>(stackSizeSigned);
-            }
-            else
-            {
-                sp = stack;
-            }
-        }
-
-        sp &= ~0xFu;
-        if (stack == 0xFFFFFFFFu)
-        {
-            initialStack = sp;
-        }
-        else if (stack != 0u)
-        {
-            initialStack = stack;
+            const uint32_t top = stack == 0xFFFFFFFFu ? PS2_RUNTIME_RESERVED_BASE : stack + stackSize;
+            initialStack = stackSize < top ? top - stackSize : 0u;
+            sp = (top - kStackReserve) & ~0xFu;
         }
 
         scheduler.setupCurrentThread(initialStack, stackSize, getRegU32(ctx, 28));
@@ -542,9 +513,18 @@ namespace ps2_syscalls
 
         const uint32_t heapBase = (heapBaseRaw + 0xFu) & ~0xFu;
 
-        // Silent Hill and other games often pass -1 (0xFFFFFFFF) to mean "rest of RAM".
+        // Silent Hill and other games often pass -1 (0xFFFFFFFF) to mean "rest of RAM":
+        // the heap runs up to the main thread's stack, as the kernel places it.
         static constexpr uint32_t kDefaultGuestHeapEnd = PS2_RUNTIME_RESERVED_BASE;
         uint32_t heapLimit = kDefaultGuestHeapEnd;
+        if (runtime)
+        {
+            const GuestThread *thread = runtime->eeScheduler().currentThread();
+            if (thread && thread->stack != 0u && thread->stack < heapLimit)
+            {
+                heapLimit = thread->stack;
+            }
+        }
 
         if (heapSize != 0u && heapSize != 0xFFFFFFFFu)
         {

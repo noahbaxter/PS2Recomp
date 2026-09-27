@@ -1084,7 +1084,10 @@ void register_ps2_runtime_kernel_tests()
             TestEnv env;
             constexpr uint32_t kInitialLoaderSp = PS2_RAM_SIZE - 0x10u;
             constexpr uint32_t kMainStackSize = 0x00020000u;
-            constexpr uint32_t kExpectedStack = PS2_RAM_SIZE - kMainStackSize;
+            // stack == -1 ends the stack where the runtime's reserved region
+            // begins; $sp starts below the kernel's context reserve.
+            constexpr uint32_t kExpectedStack = PS2_RUNTIME_RESERVED_BASE - kMainStackSize;
+            constexpr uint32_t kExpectedSp = (PS2_RUNTIME_RESERVED_BASE - 0x2A0u) & ~0xFu;
             constexpr uint32_t kMainGp = 0x0036A7F0u;
 
             env.ctx.pc = 0x00100000u;
@@ -1094,7 +1097,7 @@ void register_ps2_runtime_kernel_tests()
             setRegU32(env.ctx, 6, kMainStackSize);
             t.IsTrue(callSyscall(0x3Cu, env.rdram.data(), &env.ctx, &env.runtime),
                      "SetupThread syscall should dispatch");
-            t.Equals(::getRegU32(&env.ctx, 2), kExpectedStack,
+            t.Equals(::getRegU32(&env.ctx, 2), kExpectedSp,
                      "automatic main stack should start below the reserved top-of-RDRAM area");
 
             // ReferThreadStatus can be called after many nested frames have moved $sp.
