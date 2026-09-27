@@ -279,6 +279,23 @@ public:
     void requestStop();
     void postEvent(EeEvent event);
 
+    // While one is alive, guest code runs to completion on the host stack:
+    // checkpoints never yield and a reschedule waits until the scope ends.
+    // This is how host code calls a guest function and continues after it.
+    // Anything that would block the thread instead (a wait, an exit, an
+    // invocation) is fatal inside the scope, since nothing could wake it.
+    class NoYieldScope
+    {
+    public:
+        explicit NoYieldScope(EeScheduler &scheduler) : m_scheduler(scheduler) { ++m_scheduler.m_noYieldDepth; }
+        ~NoYieldScope() { --m_scheduler.m_noYieldDepth; }
+        NoYieldScope(const NoYieldScope &) = delete;
+        NoYieldScope &operator=(const NoYieldScope &) = delete;
+
+    private:
+        EeScheduler &m_scheduler;
+    };
+
     // COP0 Count ticks once per EE cycle (ps2tek) and is one register for
     // every thread, so it reads off the scheduler's clock. A write sets the
     // offset from that clock.
@@ -439,6 +456,8 @@ private:
     uint32_t m_pendingEeTimerInterrupts = 0;
     uint64_t m_eeCycle = 0;
     uint32_t m_countOffset = 0;
+    uint32_t m_noYieldDepth = 0;
+    void requireYieldAllowed(const char *what) const;
     uint64_t m_sliceEndCycle = kDefaultTimeSliceCycles;
     std::thread::id m_executorThread{};
     std::atomic<bool> m_running{false};

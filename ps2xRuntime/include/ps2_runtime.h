@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <functional>
+#include <initializer_list>
 #if defined(_MSC_VER)
 #include <intrin.h>
 #elif defined(USE_SSE2NEON)
@@ -422,6 +423,15 @@ public:
 
     EeScheduler &eeScheduler();
     const EeScheduler &eeScheduler() const;
+    // Runs a guest function to completion on the host stack, on the calling
+    // guest thread, and returns its $v0, so host code can call guest code and
+    // carry on after it. Up to eight arguments go in $a0-$a3/$t0-$t3.
+    // `function` stands in for the table entry at `address`, which is how an
+    // override calls the original it replaced. The callee must not block:
+    // see EeScheduler::NoYieldScope.
+    uint64_t callGuestFunction(uint8_t *rdram, R5900Context *ctx, uint32_t address,
+                               std::initializer_list<uint32_t> args = {},
+                               RecompiledFunction function = nullptr);
     // MFC0/MTC0 Count, as generated code emits them.
     uint32_t cop0Count() const;
     void setCop0Count(uint32_t value);

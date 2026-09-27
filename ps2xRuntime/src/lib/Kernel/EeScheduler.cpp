@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 
@@ -359,6 +361,12 @@ bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
 {
     accountCycles(cycles);
 
+    // Pending events stay pending and are taken once the scope ends.
+    if (m_noYieldDepth != 0u)
+    {
+        return false;
+    }
+
     if (m_checkpointPending.load(std::memory_order_acquire) ||
         m_stopRequested.load(std::memory_order_acquire))
     {
@@ -512,6 +520,7 @@ int EeScheduler::startThread(int id, uint32_t arg, const R5900Context &caller, b
 [[noreturn]] void EeScheduler::exitCurrent(bool deleteThreadRecord)
 {
     assertExecutor();
+    requireYieldAllowed("thread exit");
     GuestThread *exiting = currentThread();
     assert(exiting != nullptr);
     const int id = exiting->id;
@@ -804,6 +813,11 @@ void EeScheduler::transferIfRequested(bool interruptSafe)
     assertExecutor();
     if (interruptSafe || m_insideInterrupt || !m_rescheduleRequested)
     {
+        return;
+    }
+    if (m_noYieldDepth != 0u)
+    {
+        m_checkpointPending.store(true, std::memory_order_release);
         return;
     }
     if (m_currentThreadId != 0)
@@ -1110,6 +1124,7 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
 [[noreturn]] void EeScheduler::invokeCurrent(GuestInvocation invocation)
 {
     assertExecutor();
+    requireYieldAllowed("invocation");
     GuestThread *owner = currentThread();
     assert(owner != nullptr);
     if (getRegU32(&invocation.context, 29) == 0u)
@@ -1125,6 +1140,7 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
 [[noreturn]] void EeScheduler::invokeCurrentSequence(std::vector<GuestInvocation> invocations)
 {
     assertExecutor();
+    requireYieldAllowed("invocation");
     GuestThread *owner = currentThread();
     assert(owner != nullptr);
     assert(!invocations.empty());
@@ -1681,8 +1697,20 @@ void EeScheduler::removeFromWaitObject(GuestThread &item)
     item.wait = {};
 }
 
+void EeScheduler::requireYieldAllowed(const char *what) const
+{
+    if (m_noYieldDepth == 0u)
+    {
+        return;
+    }
+    std::cerr << "[ee] " << what << " inside a NoYieldScope: host code called a guest"
+              << " function that cannot run to completion" << std::endl;
+    std::abort();
+}
+
 void EeScheduler::blockCurrent(EeWaitState wait)
 {
+    requireYieldAllowed("thread wait");
     GuestThread *self = currentThread();
     assert(self != nullptr);
     self->wait = std::move(wait);

@@ -351,6 +351,36 @@ namespace
         }
     }
 
+    constexpr uint32_t K_CALL_ADD = 0x3A0000u;
+    constexpr uint32_t K_CALL_TAIL = 0x3A0100u;
+    constexpr uint32_t K_CALL_TAIL_TARGET = 0x3A0200u;
+
+    // v0 = a0 + a1, then return to $ra.
+    void callAdd(uint8_t *, R5900Context *ctx, PS2Runtime *)
+    {
+        SET_GPR_U32(ctx, 2, getRegU32(ctx, 4) + getRegU32(ctx, 5));
+        ctx->pc = getRegU32(ctx, 31);
+    }
+
+    // Jumps to another function and returns to the dispatcher, as a tail
+    // call in generated code does.
+    void callTail(uint8_t *, R5900Context *ctx, PS2Runtime *)
+    {
+        ctx->pc = K_CALL_TAIL_TARGET;
+    }
+
+    void callTailTarget(uint8_t *, R5900Context *ctx, PS2Runtime *)
+    {
+        SET_GPR_U32(ctx, 2, 7u);
+        ctx->pc = getRegU32(ctx, 31);
+    }
+
+    void callReturnsOne(uint8_t *, R5900Context *ctx, PS2Runtime *)
+    {
+        SET_GPR_U32(ctx, 2, 1u);
+        ctx->pc = getRegU32(ctx, 31);
+    }
+
     void schedulerTraceB(uint8_t *, R5900Context *ctx, PS2Runtime *runtime)
     {
         GuestExecutionProbe probe(runtime);
@@ -666,6 +696,55 @@ void register_ps2_runtime_kernel_tests()
                       "all EE guest functions must execute on the single scheduler host thread");
             t.IsFalse(gGuestExecutingFlagMissing.load(std::memory_order_acquire),
                       "the scheduler must publish guest execution only around the active guest call");
+        });
+
+        tc.Run("callGuestFunction returns the callee's v0 and restores ra and pc", [](TestCase &t)
+        {
+            TestEnv env;
+            env.runtime.registerFunction(K_CALL_ADD, callAdd);
+            EeScheduler &ee = env.runtime.eeScheduler();
+            ee.reset(env.rdram.data(), env.ctx);
+            env.ctx.pc = 0x100000u;
+            setRegU32(env.ctx, 31, 0x100040u);
+
+            const uint64_t result = env.runtime.callGuestFunction(env.rdram.data(), &env.ctx, K_CALL_ADD, {2u, 3u});
+            t.Equals(static_cast<uint32_t>(result), 5u, "the callee's v0 should come back");
+            t.Equals(env.ctx.pc, 0x100000u, "the caller's pc should be restored");
+            t.Equals(::getRegU32(&env.ctx, 31), 0x100040u, "the caller's ra should be restored");
+        });
+
+        tc.Run("callGuestFunction follows a callee through a tail call", [](TestCase &t)
+        {
+            TestEnv env;
+            env.runtime.registerFunction(K_CALL_TAIL, callTail);
+            env.runtime.registerFunction(K_CALL_TAIL_TARGET, callTailTarget);
+            env.runtime.eeScheduler().reset(env.rdram.data(), env.ctx);
+
+            const uint64_t result = env.runtime.callGuestFunction(env.rdram.data(), &env.ctx, K_CALL_TAIL);
+            t.Equals(static_cast<uint32_t>(result), 7u, "the tail call's target should run to completion");
+        });
+
+        tc.Run("callGuestFunction runs the given function over the table entry", [](TestCase &t)
+        {
+            TestEnv env;
+            env.runtime.registerFunction(K_CALL_ADD, callReturnsOne);
+            env.runtime.eeScheduler().reset(env.rdram.data(), env.ctx);
+
+            const uint64_t result = env.runtime.callGuestFunction(env.rdram.data(), &env.ctx, K_CALL_ADD,
+                                                                  {20u, 22u}, callAdd);
+            t.Equals(static_cast<uint32_t>(result), 42u, "an override calls the original it replaced");
+        });
+
+        tc.Run("checkpoints never yield inside a NoYieldScope", [](TestCase &t)
+        {
+            TestEnv env;
+            EeScheduler &ee = env.runtime.eeScheduler();
+            ee.reset(env.rdram.data(), env.ctx);
+            {
+                EeScheduler::NoYieldScope scope(ee);
+                t.IsFalse(ee.checkpointDue(0x40000000u), "a due deadline must not yield inside the scope");
+            }
+            t.IsTrue(ee.checkpointDue(1u), "the deadline passed inside the scope is taken after it");
         });
 
         tc.Run("thread lifecycle, nested suspend, WAIT-SUSPEND, and wakeup count are centralized", [](TestCase &t)

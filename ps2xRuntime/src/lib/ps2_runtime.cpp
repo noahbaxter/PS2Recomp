@@ -2206,6 +2206,57 @@ EeScheduler &PS2Runtime::eeScheduler()
     return *m_eeScheduler;
 }
 
+uint64_t PS2Runtime::callGuestFunction(uint8_t *rdram, R5900Context *ctx, uint32_t address,
+                                       std::initializer_list<uint32_t> args,
+                                       RecompiledFunction function)
+{
+    // The callee returns here: KSEG3, where no guest code lives.
+    constexpr uint32_t kReturnSentinel = 0xFFFFFFF0u;
+    static constexpr int kArgRegs[] = {4, 5, 6, 7, 8, 9, 10, 11};
+
+    const uint32_t savedPc = ctx->pc;
+    const uint32_t savedRa = GPR_U32(ctx, 31);
+    size_t i = 0;
+    for (uint32_t arg : args)
+    {
+        if (i >= std::size(kArgRegs))
+            break;
+        // SET_GPR_U32 evaluates its register more than once.
+        const int reg = kArgRegs[i++];
+        SET_GPR_U32(ctx, reg, arg);
+    }
+    SET_GPR_U32(ctx, 31, kReturnSentinel);
+    ctx->pc = address;
+
+    EeScheduler::NoYieldScope scope(*m_eeScheduler);
+    RecompiledFunction next = function ? function : lookupFunction(address);
+    try
+    {
+        while (ctx->pc != kReturnSentinel && !isStopRequested())
+        {
+            if (!next)
+            {
+                std::cerr << "[callGuestFunction] no function at 0x" << std::hex << ctx->pc << std::dec << std::endl;
+                std::abort();
+            }
+            next(rdram, ctx, this);
+            if (ctx->pc != kReturnSentinel)
+                next = lookupFunction(ctx->pc);
+        }
+    }
+    catch (const EeDispatcherTransfer &)
+    {
+        std::cerr << "[callGuestFunction] guest function at 0x" << std::hex << address << std::dec
+                  << " left the thread" << std::endl;
+        std::abort();
+    }
+
+    const uint64_t result = GPR_U64(ctx, 2);
+    SET_GPR_U32(ctx, 31, savedRa);
+    ctx->pc = savedPc;
+    return result;
+}
+
 uint32_t PS2Runtime::cop0Count() const
 {
     return m_eeScheduler->readCount();
