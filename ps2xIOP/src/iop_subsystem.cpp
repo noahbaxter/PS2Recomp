@@ -114,6 +114,20 @@ namespace ps2x::iop
         m_impl->rebuildRoutes();
     }
 
+    void IopSubsystem::addService(std::unique_ptr<IopService> service)
+    {
+        if (!service)
+            return;
+        m_impl->coreServices.push_back(std::move(service));
+        m_impl->refreshServiceModuleKeys();
+        m_impl->rebuildRoutes();
+    }
+
+    IopHost &IopSubsystem::host() noexcept
+    {
+        return m_impl->host;
+    }
+
     ModuleLoadResult IopSubsystem::loadModule(std::string_view path, const void *arguments, uint32_t argumentSize)
     {
         const ParsedPs2Path parsed = parsePs2Path(path);

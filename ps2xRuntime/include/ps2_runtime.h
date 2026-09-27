@@ -452,6 +452,8 @@ public:
     inline PS2Memory &memory() { return m_memory; }
     inline const PS2Memory &memory() const { return m_memory; }
 
+    inline ps2x::iop::IopSubsystem &iop() { return *m_iopSubsystem; }
+
     inline GS &gs() { return m_gs; }
     inline const GS &gs() const { return m_gs; }
     inline GifArbiter &gifArbiter() { return m_gifArbiter; }

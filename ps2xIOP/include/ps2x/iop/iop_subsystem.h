@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ps2x/iop/iop_host.h"
+#include "ps2x/iop/iop_service.h"
 #include "ps2x/iop/iop_types.h"
 
 #include <memory>
@@ -22,6 +23,11 @@ namespace ps2x::iop
         IopSubsystem &operator=(IopSubsystem &&) noexcept;
 
         void reset();
+
+        // An HLE service from outside the library, e.g. a game's own IOP
+        // module. It lives alongside the built-in ones and survives reset().
+        void addService(std::unique_ptr<IopService> service);
+        [[nodiscard]] IopHost &host() noexcept;
 
         [[nodiscard]] ModuleLoadResult loadModule(std::string_view path, const void *arguments = nullptr, uint32_t argumentSize = 0);
         [[nodiscard]] ModuleLoadResult loadModuleBuffer(uint32_t guestAddress, const void *arguments = nullptr, uint32_t argumentSize = 0);
