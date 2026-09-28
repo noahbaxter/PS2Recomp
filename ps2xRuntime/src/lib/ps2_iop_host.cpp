@@ -519,6 +519,12 @@ bool PS2IopHostAdapter::sendSifCommand(uint32_t commandId,
 
 void PS2IopHostAdapter::log(ps2x::iop::LogLevel level, std::string_view message)
 {
+#ifdef NDEBUG
+    if (level == ps2x::iop::LogLevel::Debug)
+    {
+        return;
+    }
+#endif
     const char *prefix = "[ps2xIOP]";
     if (level == ps2x::iop::LogLevel::Warning)
     {

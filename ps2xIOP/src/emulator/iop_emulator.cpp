@@ -646,7 +646,8 @@ namespace ps2x::iop::detail
             std::vector<uint8_t> image;
             if (!IopModuleLoader::readWholeHostFile(host, path, image))
             {
-                log(LogLevel::Warning, std::string("[IOP] failed to open IRX '") + std::string(path) + "'");
+                // The subsystem reports what the load came to, so this is detail.
+                log(LogLevel::Debug, std::string("[IOP] failed to open IRX '") + std::string(path) + "'");
                 return {true, -1, -1};
             }
             return loadImage(std::string(path), image, arguments, argumentSize);

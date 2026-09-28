@@ -75,7 +75,9 @@ namespace ps2x::iop
             message += hle ? "' physical IRX unavailable; using registered HLE provider"
                            : "' no HLE provider accepted the module; physical IRX was not loaded";
             loadOutcomes.push_back(message);
-            host.log(hle ? LogLevel::Info : LogLevel::Warning, message);
+            // An HLE provider answering is the designed path; only a module
+            // nothing answers for is worth a warning.
+            host.log(hle ? LogLevel::Debug : LogLevel::Warning, message);
         }
 
         IopHost &host;
