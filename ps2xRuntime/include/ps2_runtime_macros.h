@@ -623,7 +623,17 @@ inline __m128i ps2_u64_to_epi64_pair(uint64_t value)
 #define FPU_FLOOR_W_S(a) ((int32_t)floorf((float)(a)))
 #define FPU_CVT_S_W(a) ((float)(int32_t)(a))
 #define FPU_CVT_S_L(a) ((float)(int64_t)(a))
-#define FPU_CVT_W_S(a) ((int32_t)nearbyintf((float)(a)))
+// The R5900's CVT.W.S truncates toward zero and saturates what does not fit,
+// as PCSX2's CVT_W: an exponent above 2^30's converts to INT32_MAX or
+// INT32_MIN by sign, NaN included.
+inline int32_t ps2FpuCvtWS(float value)
+{
+    const uint32_t bits = std::bit_cast<uint32_t>(value);
+    if ((bits & 0x7F800000u) <= 0x4E800000u)
+        return static_cast<int32_t>(value);
+    return (bits & 0x80000000u) ? INT32_MIN : INT32_MAX;
+}
+#define FPU_CVT_W_S(a) (ps2FpuCvtWS((float)(a)))
 #define FPU_CVT_L_S(a) ((int64_t)(float)(a))
 #define FPU_C_F_S(a, b) (0)
 #define FPU_C_UN_S(a, b) (isnan((float)(a)) || isnan((float)(b)))

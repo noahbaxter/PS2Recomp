@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -315,6 +316,17 @@ void register_ps2_runtime_expansion_tests()
 {
     MiniTest::Case("PS2RuntimeExpansion", [](TestCase &tc)
     {
+        tc.Run("CVT.W.S truncates toward zero and saturates out of range", [](TestCase &t)
+        {
+            t.Equals(FPU_CVT_W_S(2.7f), 2, "positive fraction truncates");
+            t.Equals(FPU_CVT_W_S(-2.7f), -2, "negative fraction truncates toward zero");
+            t.Equals(FPU_CVT_W_S(0.5f), 0, "half does not round up");
+            t.Equals(FPU_CVT_W_S(2147483520.0f), 2147483520, "largest float below 2^31 converts");
+            t.Equals(FPU_CVT_W_S(3.0e9f), INT32_MAX, "positive overflow saturates");
+            t.Equals(FPU_CVT_W_S(-3.0e9f), INT32_MIN, "negative overflow saturates");
+            t.Equals(FPU_CVT_W_S(std::numeric_limits<float>::quiet_NaN()), INT32_MAX, "NaN saturates by its sign bit");
+        });
+
         tc.Run("differential decoder/codegen gpr-write contract for MULT and DIV families", [](TestCase &t)
         {
             R5900Decoder decoder;
