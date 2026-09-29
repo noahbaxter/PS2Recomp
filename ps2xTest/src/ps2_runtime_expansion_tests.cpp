@@ -167,6 +167,19 @@ namespace
         }
     }
 
+    // Calls itself again, as generated code would, with a checkpoint due, so
+    // the inner call parks pc on this function's entry and unwinds.
+    void testGuestBranchParksNestedCallHandler(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        runtime->eeScheduler().postEvent(EeEvent{EeEventType::Dmac, 0u, 0u});
+        if (!runtime->dispatchGuestBranch(rdram, ctx, 0x3200u, 0x3204u, 0x320Cu,
+                                          PS2Runtime::GuestBranchKind::DirectCall, "test-nested-jal"))
+        {
+            return;
+        }
+        ctx->pc = 0x44440000u; // reached only if the nested call ran
+    }
+
     std::atomic<uint32_t> gGuestJumpTargetCount{0u};
 
     void testGuestJumpTargetHandler(uint8_t *, R5900Context *, PS2Runtime *)
@@ -465,6 +478,29 @@ void register_ps2_runtime_expansion_tests()
                       "call-like dispatch should stop caller flow when callee transfers elsewhere");
             t.Equals(ctx.pc, 0x33330000u,
                      "callee transfer PC should be preserved");
+        });
+
+        tc.Run("dispatchGuestBranch lets a checkpoint parked on its own callee's entry unwind", [](TestCase &t)
+        {
+            PS2Runtime runtime;
+            runtime.registerFunction(0x3200u, &testGuestBranchParksNestedCallHandler);
+
+            R5900Context ctx{};
+            ctx.pc = 0x2000u;
+
+            const bool returnedToFallthrough = runtime.dispatchGuestBranch(
+                nullptr,
+                &ctx,
+                0x3200u,
+                0x2000u,
+                0x2008u,
+                PS2Runtime::GuestBranchKind::DirectCall,
+                "test-jal-parked");
+
+            t.IsFalse(returnedToFallthrough,
+                      "an unwinding checkpoint is not the callee returning");
+            t.Equals(ctx.pc, 0x3200u,
+                     "the resume point the checkpoint left must survive the unwind");
         });
 
         tc.Run("dispatchGuestBranch rejects missing exact targets", [](TestCase &t)

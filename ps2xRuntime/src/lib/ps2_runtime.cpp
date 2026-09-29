@@ -1414,6 +1414,16 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
         return false;
     }
 
+    // A checkpoint below left pc where that frame resumes, not a return. It
+    // can be this callee's entry (the same function called again deeper
+    // down, parked before its call), which the rule below would take for a
+    // stub's return and carry on here with the deeper frame's registers.
+    if (m_eeScheduler && m_eeScheduler->unwindingToDispatcher())
+    {
+        return false;
+    }
+
+    // Stubs and syscall handlers return without touching pc.
     if (ctx->pc == entryPc)
     {
         ctx->pc = fallthroughPc;

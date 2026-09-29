@@ -118,6 +118,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_sliceEndCycle = kDefaultTimeSliceCycles;
     m_stopRequested.store(false, std::memory_order_release);
     m_checkpointPending.store(false, std::memory_order_release);
+    m_unwinding = false;
     m_debugPublishCountdown = 0u;
     {
         std::lock_guard lock(m_eventMutex);
@@ -299,6 +300,7 @@ void EeScheduler::run()
         {
             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
             m_guestExecuting.store(true, std::memory_order_release);
+            m_unwinding = false;
             function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
@@ -358,6 +360,13 @@ void EeScheduler::postEvent(EeEvent event)
 }
 
 bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
+{
+    const bool due = checkpointFires(cycles);
+    m_unwinding |= due;
+    return due;
+}
+
+bool EeScheduler::checkpointFires(uint32_t cycles) noexcept
 {
     accountCycles(cycles);
 

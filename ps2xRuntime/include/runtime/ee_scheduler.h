@@ -308,6 +308,10 @@ public:
         m_countOffset = value - static_cast<uint32_t>(m_eeCycle);
     }
     [[nodiscard]] bool checkpointDue(uint32_t cycles = kGeneratedCheckpointCycles) noexcept;
+    // True from a checkpoint that fired until the dispatcher runs guest code
+    // again: generated code is returning up the host stack, and no frame on
+    // the way may take the pc it left for a return of its own.
+    [[nodiscard]] bool unwindingToDispatcher() const noexcept { return m_unwinding; }
     void accountCycles(uint32_t cycles) noexcept;
     [[nodiscard]] bool isExecutingGuest() const noexcept;
 
@@ -457,6 +461,8 @@ private:
     uint64_t m_eeCycle = 0;
     uint32_t m_countOffset = 0;
     uint32_t m_noYieldDepth = 0;
+    bool m_unwinding = false;
+    bool checkpointFires(uint32_t cycles) noexcept;
     void requireYieldAllowed(const char *what) const;
     uint64_t m_sliceEndCycle = kDefaultTimeSliceCycles;
     std::thread::id m_executorThread{};
