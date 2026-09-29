@@ -37,6 +37,12 @@ static_assert(PS2_RAM_SIZE >= 32u * 1024u * 1024u && PS2_RAM_SIZE <= 256u * 1024
 // invocation stacks), where the real kernel's thread stack would begin.
 constexpr uint32_t PS2_RUNTIME_RESERVED_SIZE = 0x00100000u;
 constexpr uint32_t PS2_RUNTIME_RESERVED_BASE = PS2_RAM_SIZE - PS2_RUNTIME_RESERVED_SIZE;
+// Below it, the arena the runtime's guest allocator hands out: thread stacks,
+// SIF, GS and MPEG packets, IOP buffers. Memory the real console kept in the
+// kernel, so it sits outside the game's heap, whose top (SetupThread's stack
+// and EndOfHeap's ceiling) is the arena's base. An eighth of RAM.
+constexpr uint32_t PS2_RUNTIME_ARENA_SIZE = PS2_RAM_SIZE / 8u;
+constexpr uint32_t PS2_RUNTIME_ARENA_BASE = PS2_RUNTIME_RESERVED_BASE - PS2_RUNTIME_ARENA_SIZE;
 constexpr uint32_t PS2_RAM_BASE = 0x00000000;          // Physical base of RDRAM
 constexpr uint32_t PS2_SCRATCHPAD_BASE = 0x70000000;
 constexpr uint32_t PS2_SCRATCHPAD_ALIAS_BASE = 0xF0000000;

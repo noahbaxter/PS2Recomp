@@ -414,6 +414,10 @@ public:
     uint32_t guestHeapBase() const;
     uint32_t guestHeapEnd() const;
     uint32_t guestHeapLimit() const;
+    // The game's own heap, as SetupHeap placed it: EndOfHeap's answer, which
+    // its sbrk grows toward. Separate from the runtime allocator above.
+    void setUserHeapLimit(uint32_t limit) { m_userHeapLimit.store(limit, std::memory_order_relaxed); }
+    uint32_t userHeapLimit() const { return m_userHeapLimit.load(std::memory_order_relaxed); }
     uint32_t reserveAsyncCallbackStack(uint32_t size, uint32_t alignment = 16u);
 
     void drainCompletedDmacHandlers(uint8_t *rdram);
@@ -553,11 +557,12 @@ private:
     mutable std::mutex m_guestHeapMutex;
     mutable std::mutex m_asyncCallbackStackMutex;
     std::vector<GuestHeapBlock> m_guestHeapBlocks;
-    uint32_t m_guestHeapBase = 0x00100000u;
-    uint32_t m_guestHeapEnd = 0x00100000u;
-    uint32_t m_guestHeapLimit = PS2_RAM_SIZE;
-    uint32_t m_guestHeapSuggestedBase = 0x00100000u;
+    uint32_t m_guestHeapBase = PS2_RUNTIME_ARENA_BASE;
+    uint32_t m_guestHeapEnd = PS2_RUNTIME_ARENA_BASE;
+    uint32_t m_guestHeapLimit = PS2_RUNTIME_RESERVED_BASE;
+    uint32_t m_guestHeapSuggestedBase = PS2_RUNTIME_ARENA_BASE;
     bool m_guestHeapConfigured = false;
+    std::atomic<uint32_t> m_userHeapLimit{PS2_RUNTIME_ARENA_BASE};
     uint32_t m_asyncCallbackStackFloor = PS2_RUNTIME_RESERVED_BASE;
     uint32_t m_asyncCallbackStackTop = PS2_RAM_SIZE;
 

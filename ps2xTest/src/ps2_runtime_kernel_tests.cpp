@@ -982,6 +982,13 @@ void register_ps2_runtime_kernel_tests()
             const uint32_t heapLimit = static_cast<uint32_t>(getRegS32(env.ctx, 2));
             t.Equals(heapLimit, 0x00181010u, "EndOfHeap should report the upper limit of the configured heap");
 
+            // The game's heap is its own; the runtime allocator stays in its arena.
+            const uint32_t runtimeAlloc = env.runtime.guestMalloc(0x20u, 16u);
+            t.IsTrue(runtimeAlloc >= PS2_RUNTIME_ARENA_BASE && runtimeAlloc < PS2_RUNTIME_RESERVED_BASE,
+                     "guestMalloc should allocate from the runtime arena, not the game's heap");
+            env.runtime.guestFree(runtimeAlloc);
+
+            env.runtime.configureGuestHeap(heapBase, heapLimit);
             const uint32_t alignedAlloc = env.runtime.guestMalloc(0x20u, 64u);
             t.IsTrue(alignedAlloc != 0u, "guestMalloc should allocate inside configured heap");
             t.Equals(alignedAlloc & 0x3Fu, 0u, "guestMalloc should honor 64-byte alignment");
@@ -1163,10 +1170,10 @@ void register_ps2_runtime_kernel_tests()
             TestEnv env;
             constexpr uint32_t kInitialLoaderSp = PS2_RAM_SIZE - 0x10u;
             constexpr uint32_t kMainStackSize = 0x00020000u;
-            // stack == -1 ends the stack where the runtime's reserved region
-            // begins; $sp starts below the kernel's context reserve.
-            constexpr uint32_t kExpectedStack = PS2_RUNTIME_RESERVED_BASE - kMainStackSize;
-            constexpr uint32_t kExpectedSp = (PS2_RUNTIME_RESERVED_BASE - 0x2A0u) & ~0xFu;
+            // stack == -1 ends the stack where the runtime's arena begins;
+            // $sp starts below the kernel's context reserve.
+            constexpr uint32_t kExpectedStack = PS2_RUNTIME_ARENA_BASE - kMainStackSize;
+            constexpr uint32_t kExpectedSp = (PS2_RUNTIME_ARENA_BASE - 0x2A0u) & ~0xFu;
             constexpr uint32_t kMainGp = 0x0036A7F0u;
 
             env.ctx.pc = 0x00100000u;
@@ -1177,7 +1184,7 @@ void register_ps2_runtime_kernel_tests()
             t.IsTrue(callSyscall(0x3Cu, env.rdram.data(), &env.ctx, &env.runtime),
                      "SetupThread syscall should dispatch");
             t.Equals(::getRegU32(&env.ctx, 2), kExpectedSp,
-                     "automatic main stack should start below the reserved top-of-RDRAM area");
+                     "automatic main stack should start below the runtime's arena");
 
             // ReferThreadStatus can be called after many nested frames have moved $sp.
             // It must report the initial stack recorded by SetupThread, not this live snapshot.

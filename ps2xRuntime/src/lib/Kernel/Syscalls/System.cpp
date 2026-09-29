@@ -487,7 +487,7 @@ namespace ps2_syscalls
         // The kernel returns the top of the stack, less a reserve for the
         // thread's saved context (Play!'s STACKRES). stack == -1 puts the
         // stack at the end of memory, which here ends where the runtime's
-        // reserved region begins.
+        // arena begins.
         static constexpr uint32_t kStackReserve = 0x2A0u;
         uint32_t sp = currentSp;
         uint32_t initialStack = 0u;
@@ -496,7 +496,7 @@ namespace ps2_syscalls
                                        : 0u;
         if (stack != 0u)
         {
-            const uint32_t top = stack == 0xFFFFFFFFu ? PS2_RUNTIME_RESERVED_BASE : stack + stackSize;
+            const uint32_t top = stack == 0xFFFFFFFFu ? PS2_RUNTIME_ARENA_BASE : stack + stackSize;
             initialStack = stackSize < top ? top - stackSize : 0u;
             sp = (top - kStackReserve) & ~0xFu;
         }
@@ -505,7 +505,9 @@ namespace ps2_syscalls
         setReturnU32(ctx, sp);
     }
 
-    // 0x3D SetupHeap: returns heap base/start pointer
+    // 0x3D SetupHeap: places the game's heap and returns its base. The heap is
+    // the game's own, grown by its libc's sbrk against EndOfHeap; the runtime's
+    // allocator keeps to its arena above it.
     void SetupHeap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t heapBaseRaw = getRegU32(ctx, 4); // $a0
@@ -515,7 +517,7 @@ namespace ps2_syscalls
 
         // Silent Hill and other games often pass -1 (0xFFFFFFFF) to mean "rest of RAM":
         // the heap runs up to the main thread's stack, as the kernel places it.
-        static constexpr uint32_t kDefaultGuestHeapEnd = PS2_RUNTIME_RESERVED_BASE;
+        static constexpr uint32_t kDefaultGuestHeapEnd = PS2_RUNTIME_ARENA_BASE;
         uint32_t heapLimit = kDefaultGuestHeapEnd;
         if (runtime)
         {
@@ -539,37 +541,27 @@ namespace ps2_syscalls
 
         if (runtime)
         {
-            runtime->configureGuestHeap(heapBase, heapLimit);
+            runtime->setUserHeapLimit(heapLimit);
 
             PS2_IF_AGRESSIVE_LOGS({
                 std::cerr << "[SetupHeap]"
                           << " base=0x" << std::hex << heapBaseRaw
                           << " alignedBase=0x" << heapBase
                           << " size=0x" << heapSize
-                          << " runtimeBase=0x" << runtime->guestHeapBase()
-                          << " runtimeEnd=0x" << runtime->guestHeapEnd()
+                          << " limit=0x" << heapLimit
                           << std::dec << std::endl;
             });
-
-            setReturnU32(ctx, runtime->guestHeapBase());
-            return;
         }
 
         setReturnU32(ctx, heapBase);
     }
 
-    // 0x3E EndOfHeap: commonly returns current heap end; keep it stable for now.
+    // 0x3E EndOfHeap: the ceiling of the game's heap, which its sbrk checks
+    // before moving the break.
     void EndOfHeap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         (void)rdram;
-
-        static constexpr uint32_t kDefaultGuestHeapEnd = PS2_RUNTIME_RESERVED_BASE;
-
-        const uint32_t ret = runtime
-                                 ? runtime->guestHeapLimit()
-                                 : kDefaultGuestHeapEnd;
-
-        setReturnU32(ctx, ret);
+        setReturnU32(ctx, runtime ? runtime->userHeapLimit() : PS2_RUNTIME_ARENA_BASE);
     }
 
     void GetMemorySize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

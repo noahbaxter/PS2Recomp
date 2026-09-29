@@ -87,7 +87,10 @@ struct ProgramHeader
 
 namespace
 {
-    constexpr uint32_t kGuestHeapDefaultBase = 0x00100000u;
+    constexpr uint32_t kUserMemoryBase = 0x00100000u; // below it, the EE kernel's
+    // The runtime's guest allocator serves only its arena; the game's heap is
+    // the game's own, grown by its sbrk up to EndOfHeap.
+    constexpr uint32_t kGuestHeapDefaultBase = PS2_RUNTIME_ARENA_BASE;
     constexpr uint32_t kGuestHeapDefaultAlignment = 16u;
     constexpr uint32_t kGuestHeapSafetyPad = 0x1000u;
     constexpr uint32_t kGuestHeapHardLimit = PS2_RUNTIME_RESERVED_BASE;
@@ -827,7 +830,7 @@ bool PS2Runtime::loadELF(const std::string &elfPath)
     m_cpuContext.pc = header.entry;
     m_debugPc.store(m_cpuContext.pc, std::memory_order_relaxed);
 
-    uint32_t maxLoadedRdramEnd = kGuestHeapDefaultBase;
+    uint32_t maxLoadedRdramEnd = kUserMemoryBase;
     uint32_t moduleBase = std::numeric_limits<uint32_t>::max();
     uint32_t moduleEnd = 0u;
     bool loadedAnySegment = false;
@@ -967,13 +970,14 @@ bool PS2Runtime::loadELF(const std::string &elfPath)
     const uint32_t suggestedHeapBase = alignGuestHeapValue(paddedEnd, kGuestHeapDefaultAlignment);
     {
         std::lock_guard<std::mutex> lock(m_guestHeapMutex);
+        // The ELF's end is where the game's own heap begins, so the runtime's
+        // allocator stays in its arena rather than anchoring there.
         if (!m_guestHeapConfigured)
         {
-            const uint32_t hardLimit = std::min(kGuestHeapHardLimit, PS2_RAM_SIZE);
-            m_guestHeapSuggestedBase = std::min(suggestedHeapBase, hardLimit);
-            m_guestHeapBase = m_guestHeapSuggestedBase;
-            m_guestHeapEnd = m_guestHeapSuggestedBase;
-            m_guestHeapLimit = hardLimit;
+            m_guestHeapSuggestedBase = kGuestHeapDefaultBase;
+            m_guestHeapBase = kGuestHeapDefaultBase;
+            m_guestHeapEnd = kGuestHeapDefaultBase;
+            m_guestHeapLimit = std::min(kGuestHeapHardLimit, PS2_RAM_SIZE);
         }
     }
     {
