@@ -367,6 +367,13 @@ public:
     void dispatchIrq(bool dmac, uint32_t cause);
     void setVSyncFlag(uint32_t flagAddress, uint32_t tickAddress);
     [[nodiscard]] uint64_t currentVSyncTick() const noexcept;
+    // Time between vblanks, from the next one on. Any thread. A shorter
+    // period than hardware's runs a vsync-paced game at a higher frame rate.
+    void setVBlankPeriod(std::chrono::nanoseconds period) noexcept;
+    [[nodiscard]] std::chrono::nanoseconds vblankPeriod() const noexcept
+    {
+        return std::chrono::nanoseconds(m_vblankPeriodNs.load(std::memory_order_relaxed));
+    }
     uint32_t setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_t sp);
 
     [[noreturn]] void waitVSync(uint64_t afterTick, int fixedResult = -1, std::function<void(R5900Context &)> completion = {});
@@ -480,6 +487,7 @@ private:
     uint64_t m_eventSequence = 0;
     uint64_t m_invocationSequence = 0;
     uint64_t m_vsyncTick = 0;
+    std::atomic<int64_t> m_vblankPeriodNs{16667000};
     uint32_t m_vsyncFlagAddress = 0;
     uint32_t m_vsyncTickAddress = 0;
     uint32_t m_gsVSyncCallback = 0;

@@ -33,7 +33,6 @@ namespace
     constexpr uint32_t WEF_OR = 0x01u;
     constexpr uint32_t WEF_CLEAR = 0x10u;
     constexpr uint32_t WEF_CLEAR_ALL = 0x20u;
-    constexpr auto kVBlankPeriod = std::chrono::microseconds(16667);
     constexpr auto kVBlankDuration = std::chrono::microseconds(500);
     constexpr uint64_t kAlarmTickMicroseconds = 64u;
     constexpr uint32_t kDebugPublishDispatchInterval = 4096u;
@@ -52,7 +51,11 @@ namespace
         return std::chrono::seconds(wholeSeconds) + std::chrono::nanoseconds(remainingNanoseconds);
     }
 
-    constexpr uint64_t kVBlankPeriodCycles = microsecondsToEeCycles(16667u);
+    constexpr uint64_t nanosecondsToEeCycles(uint64_t nanoseconds)
+    {
+        return (nanoseconds * EeScheduler::kEeClockHz + 999999999ull) / 1000000000ull;
+    }
+
     constexpr uint64_t kVBlankDurationCycles = microsecondsToEeCycles(500u);
     constexpr uint64_t kAlarmTickCycles = microsecondsToEeCycles(kAlarmTickMicroseconds);
 
@@ -150,8 +153,9 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     main.status = EeThreadStatus::Ready;
     m_threads.emplace(main.id, std::move(main));
     m_readyQueues[0].push_back(kMainThreadId);
-    scheduleEvent(m_eeCycle + kVBlankPeriodCycles,
-                  std::chrono::steady_clock::now() + kVBlankPeriod,
+    const std::chrono::nanoseconds period(m_vblankPeriodNs.load(std::memory_order_relaxed));
+    scheduleEvent(m_eeCycle + nanosecondsToEeCycles(period.count()),
+                  std::chrono::steady_clock::now() + period,
                   EeEvent{EeEventType::VBlankStart, 0, 0});
     publishSnapshot();
 }
@@ -1335,6 +1339,14 @@ uint64_t EeScheduler::currentVSyncTick() const noexcept
     return m_vsyncTick;
 }
 
+void EeScheduler::setVBlankPeriod(std::chrono::nanoseconds period) noexcept
+{
+    // VBlankEnd follows VBlankStart by kVBlankDuration, so a period must
+    // leave room for it.
+    m_vblankPeriodNs.store(std::max<int64_t>(period.count(), 2 * std::chrono::nanoseconds(kVBlankDuration).count()),
+                           std::memory_order_relaxed);
+}
+
 uint32_t EeScheduler::setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_t sp)
 {
     assertExecutor();
@@ -1888,8 +1900,9 @@ void EeScheduler::processDueDeadlines()
                 scheduleEvent(scheduled.deadlineCycle + kVBlankDurationCycles,
                               scheduled.hostDeadline + kVBlankDuration,
                               EeEvent{EeEventType::VBlankEnd, 0, m_vsyncTick + 1u});
-                scheduleEvent(scheduled.deadlineCycle + kVBlankPeriodCycles,
-                              scheduled.hostDeadline + kVBlankPeriod,
+                const std::chrono::nanoseconds period(m_vblankPeriodNs.load(std::memory_order_relaxed));
+                scheduleEvent(scheduled.deadlineCycle + nanosecondsToEeCycles(period.count()),
+                              scheduled.hostDeadline + period,
                               EeEvent{EeEventType::VBlankStart, 0, 0});
             }
             processEvent(scheduled.event);
