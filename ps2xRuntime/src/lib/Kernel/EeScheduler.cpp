@@ -1,4 +1,5 @@
 #include "runtime/ee_scheduler.h"
+#include "runtime/host_clock.h"
 
 #include "ps2_log.h"
 #include "ps2_runtime_macros.h"
@@ -155,7 +156,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_readyQueues[0].push_back(kMainThreadId);
     const std::chrono::nanoseconds period(m_vblankPeriodNs.load(std::memory_order_relaxed));
     scheduleEvent(m_eeCycle + nanosecondsToEeCycles(period.count()),
-                  std::chrono::steady_clock::now() + period,
+                  ps2x::host_clock::now() + period,
                   EeEvent{EeEventType::VBlankStart, 0, 0});
     publishSnapshot();
 }
@@ -1104,7 +1105,7 @@ int EeScheduler::setAlarm(uint16_t ticks,
     m_alarms.emplace(id, EeAlarm{id, ticks, handler, argument, gp, sp});
     const uint64_t tickCount = ticks == 0u ? 1u : static_cast<uint64_t>(ticks);
     scheduleEvent(m_eeCycle + tickCount * kAlarmTickCycles,
-                  std::chrono::steady_clock::now() + std::chrono::microseconds(tickCount * kAlarmTickMicroseconds),
+                  ps2x::host_clock::now() + std::chrono::microseconds(tickCount * kAlarmTickMicroseconds),
                   EeEvent{EeEventType::Alarm, static_cast<uint32_t>(id), 0});
     return id;
 }
@@ -1831,7 +1832,7 @@ void EeScheduler::processDueDeadlines()
         std::chrono::steady_clock::time_point pacingDeadline{};
         {
             std::unique_lock lock(m_eventMutex);
-            const auto now = std::chrono::steady_clock::now();
+            const auto now = ps2x::host_clock::now();
             for (const ScheduledEvent &item : m_deadlines)
             {
                 if (item.deadlineCycle <= m_eeCycle &&
@@ -1850,7 +1851,7 @@ void EeScheduler::processDueDeadlines()
 
             if (now < pacingDeadline)
             {
-                m_eventCv.wait_until(lock, pacingDeadline, [this]()
+                m_eventCv.wait_until(lock, ps2x::host_clock::real(pacingDeadline), [this]()
                                      { return !m_events.empty() ||
                                               m_stopRequested.load(std::memory_order_acquire); });
                 if (!m_events.empty() || m_stopRequested.load(std::memory_order_acquire))
@@ -1860,7 +1861,7 @@ void EeScheduler::processDueDeadlines()
                 }
             }
 
-            const auto pacedNow = std::chrono::steady_clock::now();
+            const auto pacedNow = ps2x::host_clock::now();
             auto firstFuture = std::partition(m_deadlines.begin(), m_deadlines.end(),
                                               [this, pacedNow](const ScheduledEvent &item)
                                               { return item.deadlineCycle <= m_eeCycle &&
@@ -2079,7 +2080,7 @@ void EeScheduler::waitForEvent()
     }
     if (hasTimerDeadline)
     {
-        const auto timerHostDeadline = std::chrono::steady_clock::now() + eeCyclesToHostDuration(timerCycles);
+        const auto timerHostDeadline = ps2x::host_clock::now() + eeCyclesToHostDuration(timerCycles);
         if (timerHostDeadline < hostDeadline)
         {
             deadlineCycle = m_eeCycle + timerCycles;
@@ -2087,7 +2088,7 @@ void EeScheduler::waitForEvent()
         }
     }
 
-    const bool signaled = m_eventCv.wait_until(lock, hostDeadline, [this]()
+    const bool signaled = m_eventCv.wait_until(lock, ps2x::host_clock::real(hostDeadline), [this]()
                                                { return !m_events.empty() ||
                                                         m_stopRequested.load(std::memory_order_acquire); });
     if (!signaled)
