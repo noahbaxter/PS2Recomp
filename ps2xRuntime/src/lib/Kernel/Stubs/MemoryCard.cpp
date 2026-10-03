@@ -537,13 +537,13 @@ namespace ps2_stubs
                 }
                 else
                 {
-                    ensureMcRootExists(port);
                     const std::string resolvedDir =
                         requestedDir.empty() ? state.currentDir : normalizeGuestMcPathLocked(port, requestedDir);
                     const std::filesystem::path hostDir = guestMcPathToHostPath(port, resolvedDir);
                     std::error_code ec;
-                    if (std::filesystem::exists(hostDir, ec) && !ec &&
-                        std::filesystem::is_directory(hostDir, ec))
+                    // A formatted card has its root, written to or not.
+                    if (resolvedDir == "/" ||
+                        (std::filesystem::exists(hostDir, ec) && !ec && std::filesystem::is_directory(hostDir, ec)))
                     {
                         state.currentDir = resolvedDir;
                         currentDir = resolvedDir;
@@ -715,7 +715,6 @@ namespace ps2_stubs
                 }
                 else
                 {
-                    ensureMcRootExists(port);
                     const std::string guestQuery =
                         normalizeGuestMcPathLocked(port, rawPath.empty() ? "." : rawPath);
                     const bool hasWildcard =
@@ -931,8 +930,8 @@ namespace ps2_stubs
                 state.formatted = true;
             }
         }
-        ensureMcRootExists(0);
-        ensureMcRootExists(1);
+        // The host folders are made by the first write, not here: the IOP's
+        // MCSERV calls this at every reset, before a game has asked for a card.
         setReturnS32(ctx, 0);
     }
 
