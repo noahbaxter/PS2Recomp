@@ -341,6 +341,27 @@ void EeScheduler::run()
     publishSnapshot();
 }
 
+EeScheduler::UnpacedScope::UnpacedScope(EeScheduler &scheduler)
+    : m_scheduler(scheduler), m_startCycle(scheduler.m_eeCycle), m_startHost(ps2x::host_clock::now())
+{
+}
+
+EeScheduler::UnpacedScope::~UnpacedScope()
+{
+    const auto guest = eeCyclesToHostDuration(m_scheduler.m_eeCycle - m_startCycle);
+    const auto host = ps2x::host_clock::now() - m_startHost;
+    if (guest <= host)
+    {
+        return;
+    }
+    const auto gained = std::chrono::duration_cast<std::chrono::steady_clock::duration>(guest - host);
+    std::lock_guard lock(m_scheduler.m_eventMutex);
+    for (ScheduledEvent &scheduled : m_scheduler.m_deadlines)
+    {
+        scheduled.hostDeadline -= gained;
+    }
+}
+
 void EeScheduler::requestStop()
 {
     m_stopRequested.store(true, std::memory_order_release);

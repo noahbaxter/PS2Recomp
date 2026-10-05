@@ -296,6 +296,25 @@ public:
         EeScheduler &m_scheduler;
     };
 
+    // Guest work host code runs for itself, which may cost the host far
+    // less time than its cycles count for. When the scope ends, every
+    // deadline's host time moves up by what the guest clock gained on the
+    // host's inside it, so the guest does not then wait for the host to
+    // catch up. On the EE executor only.
+    class UnpacedScope
+    {
+    public:
+        explicit UnpacedScope(EeScheduler &scheduler);
+        ~UnpacedScope();
+        UnpacedScope(const UnpacedScope &) = delete;
+        UnpacedScope &operator=(const UnpacedScope &) = delete;
+
+    private:
+        EeScheduler &m_scheduler;
+        uint64_t m_startCycle;
+        std::chrono::steady_clock::time_point m_startHost;
+    };
+
     // COP0 Count ticks once per EE cycle (ps2tek) and is one register for
     // every thread, so it reads off the scheduler's clock. A write sets the
     // offset from that clock.
