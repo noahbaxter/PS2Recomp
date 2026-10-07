@@ -1369,6 +1369,18 @@ void EeScheduler::setVBlankPeriod(std::chrono::nanoseconds period) noexcept
                            std::memory_order_relaxed);
 }
 
+void EeScheduler::dropHostTime(std::chrono::nanoseconds elapsed)
+{
+    // A deadline whose host time has passed fires as soon as its cycle
+    // comes, so without this the guest runs unpaced until it has replayed
+    // the time it stood still.
+    std::lock_guard lock(m_eventMutex);
+    for (ScheduledEvent &item : m_deadlines)
+    {
+        item.hostDeadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(elapsed);
+    }
+}
+
 uint32_t EeScheduler::setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_t sp)
 {
     assertExecutor();

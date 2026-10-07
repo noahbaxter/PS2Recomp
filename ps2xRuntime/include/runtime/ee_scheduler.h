@@ -393,6 +393,10 @@ public:
     {
         return std::chrono::nanoseconds(m_vblankPeriodNs.load(std::memory_order_relaxed));
     }
+    // Host time the guest stood still for (a native call that blocked) and
+    // is not to make up: every pending deadline moves later by it. Any
+    // thread.
+    void dropHostTime(std::chrono::nanoseconds elapsed);
     uint32_t setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_t sp);
 
     [[noreturn]] void waitVSync(uint64_t afterTick, int fixedResult = -1, std::function<void(R5900Context &)> completion = {});
