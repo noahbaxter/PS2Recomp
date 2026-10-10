@@ -81,6 +81,8 @@ namespace GSMem
 		case P4HH:
 		case P4HL:
 			return true;
+		default:
+			break;
 		}
 
 		return false;
@@ -108,6 +110,8 @@ namespace GSMem
 			return 8;
 		case P4:
 			return 4;
+		default:
+			break;
 		}
 
 		return 32;
@@ -174,6 +178,8 @@ namespace GSMem
 		case P4HL:
 		case P4HH:
 			return true;
+		default:
+			break;
 		}
 
 		return false;
@@ -328,6 +334,7 @@ namespace GSMem
 		case C32:
 		case Z32:
 		case C24:
+		case Z24:
 		case P8H:
 		case P4HL:
 		case P4HH:
@@ -341,6 +348,8 @@ namespace GSMem
 			return { 16, 16 };
 		case P4:
 			return { 32, 16 };
+		default:
+			break;
 		}
 
 		return { 0, 0 };
