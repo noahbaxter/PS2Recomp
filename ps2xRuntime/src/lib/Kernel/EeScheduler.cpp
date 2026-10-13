@@ -1935,8 +1935,20 @@ void EeScheduler::processDueDeadlines()
                               scheduled.hostDeadline + kVBlankDuration,
                               EeEvent{EeEventType::VBlankEnd, 0, m_vsyncTick + 1u});
                 const std::chrono::nanoseconds period(m_vblankPeriodNs.load(std::memory_order_relaxed));
-                scheduleEvent(scheduled.deadlineCycle + nanosecondsToEeCycles(period.count()),
-                              scheduled.hostDeadline + period,
+                // The next vblank a period on. One more than a period late
+                // (the host stalled: a hitch, a load, the window dragged) is
+                // re-anchored to now: a PS2's vblank never queues up, and the
+                // missed ones delivered back to back would run the game fast
+                // until it caught up. The cycle count keeps its own pace.
+                auto nextHost = scheduled.hostDeadline + period;
+                const auto now = ps2x::host_clock::now();
+                if (nextHost + period < now)
+                {
+                    const auto missed = (now - nextHost) / period;
+                    m_droppedVBlanks.fetch_add(static_cast<uint64_t>(missed), std::memory_order_relaxed);
+                    nextHost = now + period;
+                }
+                scheduleEvent(scheduled.deadlineCycle + nanosecondsToEeCycles(period.count()), nextHost,
                               EeEvent{EeEventType::VBlankStart, 0, 0});
             }
             processEvent(scheduled.event);

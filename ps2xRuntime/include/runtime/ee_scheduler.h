@@ -386,6 +386,12 @@ public:
     void dispatchIrq(bool dmac, uint32_t cause);
     void setVSyncFlag(uint32_t flagAddress, uint32_t tickAddress);
     [[nodiscard]] uint64_t currentVSyncTick() const noexcept;
+    // Vblanks skipped when the host fell more than a period behind and the
+    // next was re-anchored to now, since the scheduler started.
+    [[nodiscard]] uint64_t droppedVBlanks() const noexcept
+    {
+        return m_droppedVBlanks.load(std::memory_order_relaxed);
+    }
     // Time between vblanks, from the next one on. Any thread. A shorter
     // period than hardware's runs a vsync-paced game at a higher frame rate.
     void setVBlankPeriod(std::chrono::nanoseconds period) noexcept;
@@ -511,6 +517,7 @@ private:
     uint64_t m_invocationSequence = 0;
     uint64_t m_vsyncTick = 0;
     std::atomic<int64_t> m_vblankPeriodNs{16667000};
+    std::atomic<uint64_t> m_droppedVBlanks{0};
     uint32_t m_vsyncFlagAddress = 0;
     uint32_t m_vsyncTickAddress = 0;
     uint32_t m_gsVSyncCallback = 0;
