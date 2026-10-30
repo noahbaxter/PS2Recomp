@@ -35,6 +35,8 @@ namespace
     constexpr uint32_t WEF_CLEAR = 0x10u;
     constexpr uint32_t WEF_CLEAR_ALL = 0x20u;
     constexpr auto kVBlankDuration = std::chrono::microseconds(500);
+    // The most host time one vblank carries into the game's clock.
+    constexpr std::chrono::nanoseconds kMaxVBlankCatchUp = std::chrono::milliseconds(100);
     constexpr uint64_t kAlarmTickMicroseconds = 64u;
     constexpr uint32_t kDebugPublishDispatchInterval = 4096u;
 
@@ -1939,7 +1941,11 @@ void EeScheduler::processDueDeadlines()
                 // (the host stalled: a hitch, a load, the window dragged) is
                 // re-anchored to now: a PS2's vblank never queues up, and the
                 // missed ones delivered back to back would run the game fast
-                // until it caught up. The cycle count keeps its own pace.
+                // until it caught up. The cycle count, the game's clock, moves
+                // on by the host time that passed: a game slower than the
+                // period (a rate it cannot make) keeps real time instead of
+                // falling behind its audio a period at a time. A stall past
+                // kMaxVBlankCatchUp (a load) still stands the clock still.
                 auto nextHost = scheduled.hostDeadline + period;
                 const auto now = ps2x::host_clock::now();
                 if (nextHost + period < now)
@@ -1948,7 +1954,10 @@ void EeScheduler::processDueDeadlines()
                     m_droppedVBlanks.fetch_add(static_cast<uint64_t>(missed), std::memory_order_relaxed);
                     nextHost = now + period;
                 }
-                scheduleEvent(scheduled.deadlineCycle + nanosecondsToEeCycles(period.count()), nextHost,
+                const std::chrono::nanoseconds step = std::clamp<std::chrono::nanoseconds>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(nextHost - scheduled.hostDeadline), period,
+                    std::max<std::chrono::nanoseconds>(period, kMaxVBlankCatchUp));
+                scheduleEvent(scheduled.deadlineCycle + nanosecondsToEeCycles(step.count()), nextHost,
                               EeEvent{EeEventType::VBlankStart, 0, 0});
             }
             processEvent(scheduled.event);
