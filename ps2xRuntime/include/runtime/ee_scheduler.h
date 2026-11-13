@@ -297,10 +297,11 @@ public:
     };
 
     // Guest work host code runs for itself, which may cost the host far
-    // less time than its cycles count for. When the scope ends, every
-    // deadline's host time moves up by what the guest clock gained on the
-    // host's inside it, so the guest does not then wait for the host to
-    // catch up. On the EE executor only.
+    // less time than its cycles count for. When the scope ends having run
+    // ahead of the host, every deadline moves on by the cycles and the host
+    // time inside it, as if both clocks had stood still, so the guest does
+    // not then wait for the host or the vblanks to catch up. On the EE
+    // executor only.
     class UnpacedScope
     {
     public:

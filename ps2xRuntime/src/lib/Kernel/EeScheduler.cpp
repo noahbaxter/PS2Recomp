@@ -350,18 +350,25 @@ EeScheduler::UnpacedScope::UnpacedScope(EeScheduler &scheduler)
 
 EeScheduler::UnpacedScope::~UnpacedScope()
 {
-    const auto guest = eeCyclesToHostDuration(m_scheduler.m_eeCycle - m_startCycle);
+    const uint64_t cycles = m_scheduler.m_eeCycle - m_startCycle;
+    const auto guest = eeCyclesToHostDuration(cycles);
     const auto host = ps2x::host_clock::now() - m_startHost;
     if (guest <= host)
     {
         return;
     }
-    const auto gained = std::chrono::duration_cast<std::chrono::steady_clock::duration>(guest - host);
+    // Both clocks stand still across the scope: every deadline moves on by
+    // the cycles and the host time it took. Moving host times up alone left
+    // the vblanks' cycles behind the guest's, and the scheduler then held
+    // the guest while it ran them up at a period each.
+    const auto held = std::chrono::duration_cast<std::chrono::steady_clock::duration>(host);
     std::lock_guard lock(m_scheduler.m_eventMutex);
     for (ScheduledEvent &scheduled : m_scheduler.m_deadlines)
     {
-        scheduled.hostDeadline -= gained;
+        scheduled.deadlineCycle += cycles;
+        scheduled.hostDeadline += held;
     }
+    m_scheduler.updateNextDeadline();
 }
 
 void EeScheduler::requestStop()
