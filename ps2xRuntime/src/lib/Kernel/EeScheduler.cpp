@@ -1891,11 +1891,20 @@ void EeScheduler::processDueDeadlines()
                 return;
             }
 
-            if (now < pacingDeadline)
+            // Until the clock is there, however early a wake: a stepped
+            // clock's wait looks again often, and the guest going on early
+            // would make its work depend on how often.
+            for (bool reached = now >= pacingDeadline; !reached;)
             {
-                m_eventCv.wait_until(lock, ps2x::host_clock::real(pacingDeadline), [this]()
-                                     { return !m_events.empty() ||
-                                              m_stopRequested.load(std::memory_order_acquire); });
+                ps2x::host_clock::Wait wait(pacingDeadline);
+                reached = ps2x::host_clock::now() >= pacingDeadline;
+                if (!reached)
+                {
+                    wait.block();
+                    m_eventCv.wait_until(lock, ps2x::host_clock::real(pacingDeadline), [this]()
+                                         { return !m_events.empty() ||
+                                                  m_stopRequested.load(std::memory_order_acquire); });
+                }
                 if (!m_events.empty() || m_stopRequested.load(std::memory_order_acquire))
                 {
                     updateNextDeadline();
@@ -2118,6 +2127,8 @@ void EeScheduler::waitForEvent()
     const bool hasTimerDeadline = timerCycles != std::numeric_limits<uint64_t>::max();
     if (m_deadlines.empty() && !hasTimerDeadline)
     {
+        ps2x::host_clock::Wait wait;
+        wait.block();
         m_eventCv.wait(lock, [this]()
                        { return !m_events.empty() || m_stopRequested.load(std::memory_order_acquire); });
         return;
@@ -2149,9 +2160,20 @@ void EeScheduler::waitForEvent()
         }
     }
 
-    const bool signaled = m_eventCv.wait_until(lock, ps2x::host_clock::real(hostDeadline), [this]()
-                                               { return !m_events.empty() ||
-                                                        m_stopRequested.load(std::memory_order_acquire); });
+    // As processDueDeadlines(): only once the clock is there.
+    bool signaled = false;
+    for (bool reached = false; !reached && !signaled;)
+    {
+        ps2x::host_clock::Wait wait(hostDeadline);
+        reached = ps2x::host_clock::now() >= hostDeadline;
+        if (!reached)
+        {
+            wait.block();
+            signaled = m_eventCv.wait_until(lock, ps2x::host_clock::real(hostDeadline), [this]()
+                                            { return !m_events.empty() ||
+                                                     m_stopRequested.load(std::memory_order_acquire); });
+        }
+    }
     if (!signaled)
     {
         const uint64_t elapsed = deadlineCycle > m_eeCycle ? deadlineCycle - m_eeCycle : 0u;
