@@ -6,6 +6,7 @@
 #include "ps2_runtime_macros.h"
 #include "Stubs/DMA.h"
 #include "Stubs/GS.h"
+#include "Stubs/LibC.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -2243,6 +2244,43 @@ void register_ps2_memory_tests()
 
             t.IsTrue(threwRead32, "unaligned read32 should throw");
             t.IsTrue(threwWrite64, "unaligned write64 should throw");
+        });
+
+        tc.Run("memcpy and memset with a wrapped negative size touch nothing", [](TestCase &t)
+        {
+            PS2Memory mem;
+            t.IsTrue(mem.initialize(), "PS2Memory initialize should succeed");
+
+            constexpr uint32_t kSrc = 0x00030000u;
+            constexpr uint32_t kDst = 0x00031000u;
+            constexpr uint32_t kTail = 0x00400000u;
+            uint8_t *rdram = mem.getRDRAM();
+            std::memset(rdram + kSrc, 0xAB, 0x100u);
+            std::memset(rdram + kDst, 0x11, 0x100u);
+            rdram[kTail] = 0x22u;
+
+            R5900Context ctx{};
+            setRegU32(ctx, 4, kDst);
+            setRegU32(ctx, 5, kSrc);
+            setRegU32(ctx, 6, 0xffffed10u);
+            ps2_stubs::memcpy(rdram, &ctx, nullptr);
+            t.Equals(rdram[kDst], static_cast<uint8_t>(0x11u), "wrapped memcpy must not write dest");
+            t.Equals(rdram[kTail], static_cast<uint8_t>(0x22u), "wrapped memcpy must not run on past dest");
+
+            std::memset(&ctx, 0, sizeof(ctx));
+            setRegU32(ctx, 4, kDst);
+            setRegU32(ctx, 5, 0u);
+            setRegU32(ctx, 6, 0xffffed10u);
+            ps2_stubs::memset(rdram, &ctx, nullptr);
+            t.Equals(rdram[kDst], static_cast<uint8_t>(0x11u), "wrapped memset must not write dest");
+            t.Equals(rdram[kTail], static_cast<uint8_t>(0x22u), "wrapped memset must not run on past dest");
+
+            std::memset(&ctx, 0, sizeof(ctx));
+            setRegU32(ctx, 4, kDst);
+            setRegU32(ctx, 5, kSrc);
+            setRegU32(ctx, 6, 0x100u);
+            ps2_stubs::memcpy(rdram, &ctx, nullptr);
+            t.Equals(rdram[kDst + 0xFFu], static_cast<uint8_t>(0xABu), "an in-range memcpy still copies");
         });
     });
 }

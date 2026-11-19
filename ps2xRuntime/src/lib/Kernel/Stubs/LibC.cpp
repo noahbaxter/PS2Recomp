@@ -6,10 +6,11 @@ namespace ps2_stubs
 {
     namespace
     {
-        uint32_t sanitizeMemTransferSize(uint32_t size, const char *op)
+        // A size past all of RAM is a wrapped negative length: copying the
+        // clamp's worth would overwrite everything from dest to RAM's end.
+        uint32_t sanitizeMemTransferSize(uint32_t size, const char *op, R5900Context *ctx)
         {
-            constexpr uint32_t kMaxTransfer = PS2_RAM_SIZE;
-            if (size <= kMaxTransfer)
+            if (size <= PS2_RAM_SIZE)
             {
                 return size;
             }
@@ -23,11 +24,11 @@ namespace ps2_stubs
             }
             if (warnCount <= 16u)
             {
-                std::cerr << "[" << (op ? op : "memop") << "] size clamp from 0x"
-                          << std::hex << size << " to 0x" << kMaxTransfer
-                          << std::dec << std::endl;
+                std::cerr << "[" << (op ? op : "memop") << "] size 0x" << std::hex << size
+                          << " is past RAM, nothing done: a0=0x" << getRegU32(ctx, 4) << " a1=0x" << getRegU32(ctx, 5)
+                          << " ra=0x" << getRegU32(ctx, 31) << std::dec << std::endl;
             }
-            return kMaxTransfer;
+            return 0u;
         }
 
         uint32_t guestContiguousBytes(uint32_t guestAddr)
@@ -92,7 +93,7 @@ namespace ps2_stubs
         uint32_t destAddr = getRegU32(ctx, 4); // $a0
         uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
         uint32_t size = getRegU32(ctx, 6);     // $a2
-        size = sanitizeMemTransferSize(size, "memcpy");
+        size = sanitizeMemTransferSize(size, "memcpy", ctx);
 
         uint32_t copied = 0u;
         uint32_t curDst = destAddr;
@@ -134,7 +135,7 @@ namespace ps2_stubs
         uint32_t destAddr = getRegU32(ctx, 4);       // $a0
         int value = (int)(getRegU32(ctx, 5) & 0xFF); // $a1 (char value)
         uint32_t size = getRegU32(ctx, 6);           // $a2
-        size = sanitizeMemTransferSize(size, "memset");
+        size = sanitizeMemTransferSize(size, "memset", ctx);
 
         uint32_t written = 0u;
         uint32_t curDst = destAddr;
@@ -171,7 +172,7 @@ namespace ps2_stubs
     {
         uint32_t destAddr = getRegU32(ctx, 4); // $a0
         uint32_t size = getRegU32(ctx, 5);     // $a1
-        size = sanitizeMemTransferSize(size, "memclr");
+        size = sanitizeMemTransferSize(size, "memclr", ctx);
 
         uint32_t written = 0u;
         uint32_t curDst = destAddr;
@@ -208,7 +209,7 @@ namespace ps2_stubs
         uint32_t destAddr = getRegU32(ctx, 4); // $a0
         uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
         uint32_t size = getRegU32(ctx, 6);     // $a2
-        size = sanitizeMemTransferSize(size, "memmove");
+        size = sanitizeMemTransferSize(size, "memmove", ctx);
 
         uint32_t copied = 0u;
         std::vector<uint8_t> tmp;
@@ -248,7 +249,7 @@ namespace ps2_stubs
         uint32_t ptr1Addr = getRegU32(ctx, 4); // $a0
         uint32_t ptr2Addr = getRegU32(ctx, 5); // $a1
         uint32_t size = getRegU32(ctx, 6);     // $a2
-        size = sanitizeMemTransferSize(size, "memcmp");
+        size = sanitizeMemTransferSize(size, "memcmp", ctx);
         int result = 0;
 
         for (uint32_t i = 0u; i < size; ++i)
